@@ -4,6 +4,11 @@
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
     <variables></variables>
+    <footer>
+        <social type="email" href="teagod-s@qq.com">联系我</social>
+
+        <link href="https://beian.miit.gov.cn/">京ICP备18057515号-1</link>
+    </footer>
     <build-profile instance="tblog">
         <variables>
             <noindex-content>false</noindex-content>
