@@ -7,6 +7,10 @@
     <build-profile instance="tblog">
         <variables>
             <noindex-content>false</noindex-content>
+            <algolia-id>QZ7EKM3203</algolia-id>
+            <algolia-index>blog_index</algolia-index>
+            <algolia-api-key>451521204113c166a58a5032895883a1</algolia-api-key>
+            <algolia-show-logo>true</algolia-show-logo>
         </variables>
     </build-profile>
 
