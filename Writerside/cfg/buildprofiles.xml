@@ -8,7 +8,7 @@
     </variables>
     <footer>
         <social type="email" href="teagod-s@qq.com">联系我</social>
-        <link href="https://beian.miit.gov.cn/">京ICP备18057515号-1</link>
+<!--        <icp>京ICP备18057515号-1</icp>-->
         <copyright> 2015 is licensed under CC BY-NC-ND 4.0 </copyright>
     </footer>
     <build-profile instance="tblog">
