@@ -3,11 +3,13 @@
 <buildprofiles xsi:noNamespaceSchemaLocation="https://resources.jetbrains.com/writerside/1.0/build-profiles.xsd"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
-    <variables></variables>
+    <variables>
+        <custom-favicons>teaGod.svg</custom-favicons>
+    </variables>
     <footer>
         <social type="email" href="teagod-s@qq.com">联系我</social>
-
         <link href="https://beian.miit.gov.cn/">京ICP备18057515号-1</link>
+        <copyright> 2015 is licensed under CC BY-NC-ND 4.0 </copyright>
     </footer>
     <build-profile instance="tblog">
         <variables>
