@@ -4,7 +4,12 @@
 
 <instance-profile id="tblog"
                  name="teaGod's blog"
-                 start-page="starter.md">
+                 start-page="About-Me.md">
 
-    <toc-element topic="starter.md"/>
+    <toc-element topic="About-Me.md"/>
+    <toc-element topic="技术文章.md">
+        <toc-element topic="WriterSide.md">
+            <toc-element topic="starter.md"/>
+        </toc-element>
+    </toc-element>
 </instance-profile>
