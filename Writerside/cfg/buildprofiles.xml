@@ -6,6 +6,7 @@
     <variables>
         <custom-favicons>teaGod.svg</custom-favicons>
         <analytics-head-script-file>thirdparty/google.html</analytics-head-script-file>
+        <include-after-body>thirdparty/livere.html</include-after-body>
     </variables>
     <footer>
         <social type="email" href="teagod-s@qq.com">联系我</social>
