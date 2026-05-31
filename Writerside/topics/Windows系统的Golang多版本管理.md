@@ -54,7 +54,7 @@
         </code-block>
         <img src="mise_power_shell_env.png" alt="修改mise环境变量" border-effect="line"/>
         <tip>
-            环境变量 `MISE_DATA_DIR` 即代表 golang 下载目录
+            环境变量 <code>MISE_DATA_DIR</code> 即代表 golang 下载目录
         </tip>
     </step>
 </procedure>
