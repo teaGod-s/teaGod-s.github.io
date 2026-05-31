@@ -12,6 +12,7 @@
             <toc-element topic="数据开发中的一些SQL经验总结.md"/>
         </toc-element>
         <toc-element topic="Golang.md">
+            <toc-element topic="Windows系统的Golang多版本管理.md"/>
             <toc-element topic="统一Redis键前缀的最佳实践-Golang篇.md"/>
         </toc-element>
         <toc-element topic="WriterSide.md">

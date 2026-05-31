@@ -137,7 +137,7 @@
 </tabs>
 &emsp;&emsp;注册数是来自安装数，所以肯定小于等于安装数，就像漏斗一样。但是这个漏斗的出口是随着时间变化，越来越粗的。
 所以这种需求一般都会要求一次性查看多个时期内的转化数据。比如上文提到的T0安装数，即用户安装当天即完成注册的数量；T1安装数，即用户安装当天或第二天完成注册的总数量。<br/>
-&emsp;&emsp;一般遇到这种需求，没有经验的小白先不要慌（其实我当时已经有一点想骂街了）。他的核心解决思路，其实就是两表<code>join</code>后，<b>在<code>CASE</code>函数里用两个时间字段做对比。一个不变的时间，一个变化的时间。</b>
+&emsp;&emsp;一般遇到这种需求，没有经验的小白先不要慌（其实我当时已经有一点想骂街了）。他的核心解决思路，其实就是两表<code>join</code>后，<b>在 <code>CASE</code> 函数里用两个时间字段做对比。一个不变的时间，一个变化的时间。</b>
 拿本例来说，不变的时间就是安装时间，变化的时间就是注册时间。下面请看代码
 ```sql
     SELECT DATE(i.install_time) AS install_date,
@@ -156,33 +156,35 @@
 再进阶一点，上面的SQL是按日统计的，如果老板想按照周维度或者月维度去看这个报表，该怎么统计？（已经想疯狂骂街了）其实简单换一下<code>group by</code>条件就好了，下面请看代码
 <tabs>
     <tab title="周维度">
-        <code-block lang="sql">
+        <code-block lang="sql"><![CDATA[
             SELECT CONCAT(MIN(DATE(i.install_time)),"~",MAX(DATE(i.install_time))) AS install_date,
             COUNT(DISTINCT i.device_id) AS install_num,
             COUNT(DISTINCT CASE WHEN TIMESTAMPDIFF(HOUR, i.install_time, r.register_time) BETWEEN 0 AND 24 THEN r.id ELSE NULL END) AS register_in_24hour,
             COUNT(DISTINCT CASE	WHEN DATEDIFF(DATE(r.register_time), DATE(i.install_time)) BETWEEN 0 AND 0 THEN r.id ELSE NULL END) AS register_t0,
-            COUNT(DISTINCT CASE WHEN DATE(r.register_time) = DATE(i.install_time) AND TIME(r.register_time) &lt; '12:00:00' THEN r.id ELSE NULL END) AS register_t0_before_12,
-            COUNT(DISTINCT CASE WHEN DATE(r.register_time) = DATE(i.install_time) AND TIME(r.register_time) &lt; '18:00:00' THEN r.id END) AS register_t0_before_18,
+            COUNT(DISTINCT CASE WHEN DATE(r.register_time) = DATE(i.install_time) AND TIME(r.register_time) < '12:00:00' THEN r.id ELSE NULL END) AS register_t0_before_12,
+            COUNT(DISTINCT CASE WHEN DATE(r.register_time) = DATE(i.install_time) AND TIME(r.register_time) < '18:00:00' THEN r.id END) AS register_t0_before_18,
             COUNT(DISTINCT CASE	WHEN DATEDIFF(DATE(r.register_time), DATE(i.install_time)) BETWEEN 0 AND 1 THEN r.id ELSE NULL END) AS register_t1,
             COUNT(DISTINCT CASE	WHEN DATEDIFF(DATE(r.register_time), DATE(i.install_time)) BETWEEN 0 AND 30 THEN r.id ELSE NULL END) AS register_t30
             FROM install AS i
             LEFT JOIN register AS r ON i.device_id = r.device_id
             GROUP BY YEARWEEK(i.install_time, 1);
+        ]]>
         </code-block>
     </tab>
     <tab title="月维度">
-        <code-block lang="sql">
+        <code-block lang="sql"><![CDATA[
             SELECT DATE_FORMAT(install_time, '%Y-%m') AS install_date,
             COUNT(DISTINCT i.device_id) AS install_num,
             COUNT(DISTINCT CASE WHEN TIMESTAMPDIFF(HOUR, i.install_time, r.register_time) BETWEEN 0 AND 24 THEN r.id ELSE NULL END) AS register_in_24hour,
             COUNT(DISTINCT CASE	WHEN DATEDIFF(DATE(r.register_time), DATE(i.install_time)) BETWEEN 0 AND 0 THEN r.id ELSE NULL END) AS register_t0,
-            COUNT(DISTINCT CASE WHEN DATE(r.register_time) = DATE(i.install_time) AND TIME(r.register_time) &lt; '12:00:00' THEN r.id ELSE NULL END) AS register_t0_before_12,
-            COUNT(DISTINCT CASE WHEN DATE(r.register_time) = DATE(i.install_time) AND TIME(r.register_time) &lt; '18:00:00' THEN r.id END) AS register_t0_before_18,
+            COUNT(DISTINCT CASE WHEN DATE(r.register_time) = DATE(i.install_time) AND TIME(r.register_time) < '12:00:00' THEN r.id ELSE NULL END) AS register_t0_before_12,
+            COUNT(DISTINCT CASE WHEN DATE(r.register_time) = DATE(i.install_time) AND TIME(r.register_time) < '18:00:00' THEN r.id END) AS register_t0_before_18,
             COUNT(DISTINCT CASE	WHEN DATEDIFF(DATE(r.register_time), DATE(i.install_time)) BETWEEN 0 AND 1 THEN r.id ELSE NULL END) AS register_t1,
             COUNT(DISTINCT CASE	WHEN DATEDIFF(DATE(r.register_time), DATE(i.install_time)) BETWEEN 0 AND 30 THEN r.id ELSE NULL END) AS register_t30
             FROM install AS i
             LEFT JOIN register AS r ON i.device_id = r.device_id
             GROUP BY DATE_FORMAT(install_time, '%Y-%m');
+        ]]>
         </code-block>
     </tab>
 </tabs>
