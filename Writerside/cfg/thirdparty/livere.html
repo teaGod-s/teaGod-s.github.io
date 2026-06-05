@@ -1,6 +1,12 @@
-<!-- Livere comments -->
+<!-- Livere comments with optimizations -->
 <script>
     (function() {
+        var LIVERE_UID = 'MTAyMC8yOTQyMS81OTg5';
+        const loadState = {
+            loaded: false,
+            lastLoadPath: null
+        };
+
         function shouldShowComments(path) {
             if (!/\.html$/i.test(path)) {
                 return false;
@@ -9,7 +15,7 @@
             return noComments.indexOf(path) === -1;
         }
 
-        function mountThreadContainer() {
+        function getCommentContainer() {
             const target = document.querySelector('.app__article .article.text2')
                 || document.querySelector('.app__article')
                 || document.body;
@@ -18,33 +24,54 @@
                 return null;
             }
 
-            let thread = document.getElementById('lv-container');
-            if (!thread) {
-                thread = document.createElement('div');
-                thread.id = 'lv-container';
-                thread.setAttribute('data-id', 'city');
-                thread.setAttribute('data-uid', 'MTAyMC8yOTQyMS81OTg5');
+            let container = document.getElementById('lv-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'lv-container';
+                target.appendChild(container);
             }
-            if (thread.parentNode !== target) {
-                target.appendChild(thread);
+            return container;
+        }
+
+        function loadLivereScript() {
+            // 防止重複加載腳本
+            if (document.getElementById('livere-script')) {
+                return;
             }
-            return thread;
+
+            const script = document.createElement('script');
+            script.id = 'livere-script';
+            script.src = 'https://cdn-city.livere.com/js/embed.dist.js';
+            script.async = true;
+            document.body.appendChild(script);
         }
 
         function loadLivere() {
             const path = window.location.pathname || '';
+
             if (!shouldShowComments(path)) {
                 return;
             }
 
-            mountThreadContainer();
+            const container = getCommentContainer();
+            if (!container) {
+                return;
+            }
 
-            // 加載來必力腳本
-            const d = document;
-            const s = d.createElement('script');
-            s.src = 'https://cdn-city.livere.com/js/embed.dist.js';
-            s.async = true;
-            (d.head || d.body).appendChild(s);
+            // 設置容器屬性
+            container.setAttribute('data-id', 'city');
+            container.setAttribute('data-uid', LIVERE_UID);
+
+            // 同路徑不重複加載
+            if (path === loadState.lastLoadPath && loadState.loaded) {
+                return;
+            }
+
+            loadState.lastLoadPath = path;
+            loadState.loaded = true;
+
+            // 防止頻繁加載，只加載一次腳本
+            loadLivereScript();
         }
 
         function onReady(fn) {
