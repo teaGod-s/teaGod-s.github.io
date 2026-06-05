@@ -2,39 +2,43 @@
 <script>
     (function() {
         var LIVERE_UID = 'MTAyMC8yOTQyMS81OTg5';
-        const loadState = {
-            loaded: false,
-            lastLoadPath: null
-        };
 
         function shouldShowComments(path) {
-            if (!/\.html$/i.test(path)) {
-                return false;
-            }
-            const noComments = [];
-            return noComments.indexOf(path) === -1;
+            return /\.html$/i.test(path);
         }
 
-        function getCommentContainer() {
+        function injectLivere() {
+            // 检查是否已存在
+            if (document.getElementById('lv-container')) {
+                return;
+            }
+
+            // 找到目标容器
             const target = document.querySelector('.app__article .article.text2')
-                || document.querySelector('.app__article')
-                || document.body;
+                || document.querySelector('.app__article');
 
             if (!target) {
-                return null;
+                console.warn('Livere: No suitable container found');
+                return;
             }
 
-            let container = document.getElementById('lv-container');
-            if (!container) {
-                container = document.createElement('div');
-                container.id = 'lv-container';
-                target.appendChild(container);
-            }
-            return container;
-        }
+            // 创建 Livere 容器
+            const container = document.createElement('div');
+            container.id = 'lv-container';
+            container.setAttribute('data-id', 'city');
+            container.setAttribute('data-uid', LIVERE_UID);
+            target.appendChild(container);
 
-        function loadLivereScript() {
-            // 防止重複加載腳本
+            // 检查 Livere 脚本是否已加载
+            if (typeof window.LivereTower !== 'undefined') {
+                // 脚本已加载，手动触发初始化
+                if (window.LivereTower.init) {
+                    window.LivereTower.init();
+                }
+                return;
+            }
+
+            // 脚本未加载，加载它
             if (document.getElementById('livere-script')) {
                 return;
             }
@@ -46,78 +50,75 @@
             document.body.appendChild(script);
         }
 
-        function loadLivere() {
-            const path = window.location.pathname || '';
+        // 监听 DOM 变化，在容器出现时自动注入
+        function watchForContainer() {
+            const observer = new MutationObserver(function(mutations) {
+                // 检查目标容器是否已出现
+                const target = document.querySelector('.app__article .article.text2')
+                    || document.querySelector('.app__article');
 
-            if (!shouldShowComments(path)) {
-                return;
-            }
+                if (target && !document.getElementById('lv-container') && shouldShowComments(window.location.pathname)) {
+                    injectLivere();
+                    // 注入成功后停止观察
+                    observer.disconnect();
+                }
+            });
 
-            const container = getCommentContainer();
-            if (!container) {
-                return;
-            }
+            // 观察整个文档的变化
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
 
-            // 設置容器屬性
-            container.setAttribute('data-id', 'city');
-            container.setAttribute('data-uid', LIVERE_UID);
-
-            // 同路徑不重複加載
-            if (path === loadState.lastLoadPath && loadState.loaded) {
-                return;
-            }
-
-            loadState.lastLoadPath = path;
-            loadState.loaded = true;
-
-            // 防止頻繁加載，只加載一次腳本
-            loadLivereScript();
-        }
-
-        function onReady(fn) {
-            if (document.readyState === 'complete' || document.readyState === 'interactive') {
-                fn();
-            } else {
-                window.addEventListener('load', fn);
+            // 也做一次立即检查
+            const target = document.querySelector('.app__article .article.text2')
+                || document.querySelector('.app__article');
+            if (target && shouldShowComments(window.location.pathname)) {
+                injectLivere();
+                observer.disconnect();
             }
         }
 
-        // 監聽 SPA 導覽
-        (function() {
-            const history = window.history;
-            if (!history || !history.pushState) {
-                return;
+        // SPA 路由处理
+        let lastPath = window.location.pathname;
+
+        function handleRouteChange() {
+            const currentPath = window.location.pathname;
+            if (currentPath === lastPath) return;
+            lastPath = currentPath;
+
+            // 移除旧的评论容器（保留脚本，因为 Livere 不支持卸载重载）
+            const oldContainer = document.getElementById('lv-container');
+            if (oldContainer) {
+                oldContainer.remove();
             }
 
-            const origPushState = history.pushState;
-            history.pushState = function() {
-                const ret = origPushState.apply(this, arguments);
-                window.dispatchEvent(new Event('locationchange'));
-                return ret;
+            // 如果不该显示评论，就什么都不做
+            if (!shouldShowComments(currentPath)) return;
+
+            // 等待新页面渲染后再注入
+            setTimeout(watchForContainer, 300);
+        }
+
+        // 劫持路由
+        ['pushState', 'replaceState'].forEach(method => {
+            const original = history[method];
+            history[method] = function(...args) {
+                const result = original.apply(this, args);
+                setTimeout(handleRouteChange, 100);
+                return result;
             };
-
-            const origReplaceState = history.replaceState;
-            history.replaceState = function() {
-                const ret = origReplaceState.apply(this, arguments);
-                window.dispatchEvent(new Event('locationchange'));
-                return ret;
-            };
-
-            window.addEventListener('popstate', function() {
-                window.dispatchEvent(new Event('locationchange'));
-            });
-
-            window.addEventListener('hashchange', function() {
-                window.dispatchEvent(new Event('locationchange'));
-            });
-        })();
-
-        window.addEventListener('locationchange', function() {
-            onReady(loadLivere);
         });
 
-        // 首次载入頁面
-        onReady(loadLivere);
+        window.addEventListener('popstate', () => setTimeout(handleRouteChange, 100));
+        window.addEventListener('hashchange', () => setTimeout(handleRouteChange, 100));
+
+        // 首次加载
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', watchForContainer);
+        } else {
+            watchForContainer();
+        }
     })();
 </script>
 <noscript>請啟用 JavaScript 以檢視評論功能。</noscript>
