@@ -61,7 +61,7 @@
 
 ## 下载 golang {id="mise_3"}
 
-<procedure title="下载 goalng 步骤" id="install-golang">
+<procedure title="下载步骤" id="install-golang">
     <step>
         <p>首先查看一下可下载的 golang 版本有哪些：</p>
         <img src="mise_v.png" alt="查看可用 golang 版本" border-effect="line"/>

@@ -1,18 +1,115 @@
+<!-- Livere comments -->
+<script>
+    (function() {
+        function shouldShowComments(path) {
+            if (!/\.html$/i.test(path)) {
+                return false;
+            }
+            const noComments = [];
+            return noComments.indexOf(path) === -1;
+        }
+
+        function mountThreadContainer() {
+            const target = document.querySelector('.app__article .article.text2')
+                || document.querySelector('.app__article')
+                || document.body;
+
+            if (!target) {
+                return null;
+            }
+
+            let thread = document.getElementById('lv-container');
+            if (!thread) {
+                thread = document.createElement('div');
+                thread.id = 'lv-container';
+                thread.setAttribute('data-id', 'city');
+                thread.setAttribute('data-uid', 'MTAyMC8yOTQyMS81OTg5');
+            }
+            if (thread.parentNode !== target) {
+                target.appendChild(thread);
+            }
+            return thread;
+        }
+
+        function loadLivere() {
+            const path = window.location.pathname || '';
+            if (!shouldShowComments(path)) {
+                return;
+            }
+
+            mountThreadContainer();
+
+            // 加載來必力腳本
+            const d = document;
+            const s = d.createElement('script');
+            s.src = 'https://cdn-city.livere.com/js/embed.dist.js';
+            s.async = true;
+            (d.head || d.body).appendChild(s);
+        }
+
+        function onReady(fn) {
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                fn();
+            } else {
+                window.addEventListener('load', fn);
+            }
+        }
+
+        // 監聽 SPA 導覽
+        (function() {
+            const history = window.history;
+            if (!history || !history.pushState) {
+                return;
+            }
+
+            const origPushState = history.pushState;
+            history.pushState = function() {
+                const ret = origPushState.apply(this, arguments);
+                window.dispatchEvent(new Event('locationchange'));
+                return ret;
+            };
+
+            const origReplaceState = history.replaceState;
+            history.replaceState = function() {
+                const ret = origReplaceState.apply(this, arguments);
+                window.dispatchEvent(new Event('locationchange'));
+                return ret;
+            };
+
+            window.addEventListener('popstate', function() {
+                window.dispatchEvent(new Event('locationchange'));
+            });
+
+            window.addEventListener('hashchange', function() {
+                window.dispatchEvent(new Event('locationchange'));
+            });
+        })();
+
+        window.addEventListener('locationchange', function() {
+            onReady(loadLivere);
+        });
+
+        // 首次载入頁面
+        onReady(loadLivere);
+    })();
+</script>
+<noscript>請啟用 JavaScript 以檢視評論功能。</noscript>
+
 <!-- 来必力City版安装代码 -->
-<div id="lv-container" data-id="city" data-uid="MTAyMC8yOTQyMS81OTg5">
-    <script type="text/javascript">
-        (function(d, s) {
-            var j, e = d.getElementsByTagName(s)[0];
+<!--<div id="lv-container" data-id="city" data-uid="MTAyMC8yOTQyMS81OTg5">-->
+<!--    <script type="text/javascript">-->
+<!--        (function(d, s) {-->
+<!--            var j, e = d.getElementsByTagName(s)[0];-->
 
-            if (typeof LivereTower === 'function') { return; }
+<!--            if (typeof LivereTower === 'function') { return; }-->
 
-            j = d.createElement(s);
-            j.src = 'https://cdn-city.livere.com/js/embed.dist.js';
-            j.async = true;
+<!--            j = d.createElement(s);-->
+<!--            j.src = 'https://cdn-city.livere.com/js/embed.dist.js';-->
+<!--            j.async = true;-->
 
-            e.parentNode.insertBefore(j, e);
-        })(document, 'script');
-    </script>
-    <noscript>为正常使用来必力评论功能请激活JavaScript</noscript>
-</div>
+<!--            e.parentNode.insertBefore(j, e);-->
+<!--        })(document, 'script');-->
+<!--    </script>-->
+<!--    <noscript>为正常使用来必力评论功能请激活JavaScript</noscript>-->
+<!--</div>-->
 <!-- City版安装代码已完成 -->
