@@ -1,87 +1,153 @@
 <!-- Livere comments with SPA support -->
 <script>
-    (function() {
-        const LIVERE_CLIENT_ID = 'ux9AtiCdagTFzRHWOOkw';
-        let lastPath = window.location.pathname;
+    (function () {
+        const CLIENT_ID = 'ux9AtiCdagTFzRHWOOkw';
 
-        function shouldShowComments(path) {
-            return /\.html$/i.test(path);
+        // =========================
+        // 1. Global Singleton Guard
+        // =========================
+        if (window.__livere_adapter_inited) return;
+        window.__livere_adapter_inited = true;
+
+        let currentContainer = null;
+        let observer = null;
+        let scheduled = false;
+
+        // =========================
+        // 2. Core Logic
+        // =========================
+
+        function getArticleContainer() {
+            return document.querySelector('.app__article .article.text2')
+                || document.querySelector('.app__article');
         }
 
-        function injectLivere() {
-            if (document.querySelector('livere-comment')) return;
-
-            const target = document.querySelector('.app__article .article.text2')
-                || document.querySelector('.app__article');
-
-            if (!target) return;
-
-            // 完全模拟官方代码的写法
-            target.insertAdjacentHTML('beforeend',
-                `<livere-comment client-id="${LIVERE_CLIENT_ID}"></livere-comment>`
-            );
+        function isValidPage() {
+            // Writerside SPA 本质：只要 article 存在就是文档页
+            return !!getArticleContainer();
         }
 
-        // 等待容器出现
-        function waitForContainer(callback) {
-            const target = document.querySelector('.app__article .article.text2')
-                || document.querySelector('.app__article');
-            if (target) { callback(); return; }
+        function ensureCleanState(container) {
+            const existing = container.querySelector('livere-comment');
+            if (existing) existing.remove();
+        }
 
-            const observer = new MutationObserver(function() {
-                const target = document.querySelector('.app__article .article.text2')
-                    || document.querySelector('.app__article');
-                if (target) { observer.disconnect(); callback(); }
+        function renderLivere(container) {
+            if (!container) return;
+
+            ensureCleanState(container);
+
+            const el = document.createElement('livere-comment');
+            el.setAttribute('client-id', CLIENT_ID);
+
+            container.appendChild(el);
+        }
+
+        // =========================
+        // 3. Safe Mount Pipeline
+        // =========================
+
+        function mount() {
+            const container = getArticleContainer();
+            if (!container) return;
+
+            currentContainer = container;
+            renderLivere(container);
+        }
+
+        function scheduleMount() {
+            if (scheduled) return;
+            scheduled = true;
+
+            requestAnimationFrame(() => {
+                scheduled = false;
+                mount();
             });
-            observer.observe(document.body, { childList: true, subtree: true });
         }
 
-        // SPA 路由切换
-        function handleRouteChange() {
-            const currentPath = window.location.pathname;
-            if (currentPath === lastPath) return;
-            lastPath = currentPath;
+        // =========================
+        // 4. DOM Watcher (SPA safe)
+        // =========================
 
-            const oldEl = document.querySelector('livere-comment');
-            if (oldEl) oldEl.remove();
+        function startObserver() {
+            if (observer) return;
 
-            if (!shouldShowComments(currentPath)) return;
+            observer = new MutationObserver(() => {
+                const container = getArticleContainer();
 
-            setTimeout(() => {
-                waitForContainer(() => injectLivere());
-            }, 300);
+                if (!container) return;
+
+                // 容器变化（切页面 / SPA rerender）
+                if (container !== currentContainer) {
+                    currentContainer = container;
+                    scheduleMount();
+                    return;
+                }
+
+                // 容器存在但组件丢失（Writerside rerender）
+                if (!container.querySelector('livere-comment')) {
+                    scheduleMount();
+                }
+            });
+
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
         }
 
-        ['pushState', 'replaceState'].forEach(method => {
-            const original = history[method];
-            history[method] = function(...args) {
-                const result = original.apply(this, args);
-                setTimeout(handleRouteChange, 100);
-                return result;
+        // =========================
+        // 5. SPA Navigation Hook
+        // =========================
+
+        function hookHistory() {
+            const wrap = (type) => {
+                const original = history[type];
+                history[type] = function () {
+                    const result = original.apply(this, arguments);
+                    scheduleMount();
+                    return result;
+                };
             };
-        });
-        window.addEventListener('popstate', () => setTimeout(handleRouteChange, 100));
-        window.addEventListener('hashchange', () => setTimeout(handleRouteChange, 100));
 
-        // 首次加载
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                lastPath = window.location.pathname;
-                if (!shouldShowComments(lastPath)) return;
-                waitForContainer(() => injectLivere());
-            });
-        } else {
-            lastPath = window.location.pathname;
-            if (!shouldShowComments(lastPath)) return;
-            waitForContainer(() => injectLivere());
+            wrap('pushState');
+            wrap('replaceState');
+
+            window.addEventListener('popstate', scheduleMount);
+            window.addEventListener('hashchange', scheduleMount);
         }
+
+        // =========================
+        // 6. Init
+        // =========================
+
+        function init() {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', boot);
+            } else {
+                boot();
+            }
+        }
+
+        function boot() {
+            if (!isValidPage()) return;
+
+            startObserver();
+            hookHistory();
+
+            // 首次 mount
+            scheduleMount();
+        }
+
+        init();
+
     })();
 </script>
 
-<!-- Livere 官方脚本，原样保留 -->
+<!-- Livere 官方脚本 -->
 <script type="module" src="https://www.livere.org/livere-widget.js"></script>
 
-<noscript>請啟用 JavaScript 以檢視評論功能。</noscript>
+<noscript>请启用 JavaScript 以查看评论功能。</noscript>
 
 <!--<livere-comment client-id="ux9AtiCdagTFzRHWOOkw"></livere-comment>-->
 <!--<script type="module" src="https://www.livere.org/livere-widget.js"></script>-->
