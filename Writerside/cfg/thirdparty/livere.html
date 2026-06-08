@@ -1,10 +1,7 @@
 <!-- Livere comments with optimizations -->
 <script>
     (function() {
-        const LIVERE_CLIENT_ID = 'ux9AtiCdagTFzRHWOOkw';
-        const LIVERE_SCRIPT_SRC = 'https://www.livere.org/livere-widget.js';
-        let scriptLoaded = false;
-        let lastPath = '';
+        var LIVERE_UID = 'MTAyMC8yOTQyMS81OTg5';
 
         function shouldShowComments(path) {
             return /\.html$/i.test(path);
@@ -12,7 +9,7 @@
 
         function injectLivere() {
             // 检查是否已存在
-            if (document.querySelector('livere-comment')) {
+            if (document.getElementById('lv-container')) {
                 return;
             }
 
@@ -22,109 +19,85 @@
 
             if (!target) {
                 console.warn('Livere: No suitable container found');
-                return false;
+                return;
             }
 
-            // 创建 livere-comment 元素
-            const commentEl = document.createElement('livere-comment');
-            commentEl.setAttribute('client-id', LIVERE_CLIENT_ID);
-            target.appendChild(commentEl);
+            // 创建 Livere 容器
+            const container = document.createElement('div');
+            container.id = 'lv-container';
+            container.setAttribute('data-id', 'city');
+            container.setAttribute('data-uid', LIVERE_UID);
+            target.appendChild(container);
 
-            return true;
-        }
-
-        function loadScript() {
-            return new Promise((resolve) => {
-                if (scriptLoaded) {
-                    resolve();
-                    return;
+            // 检查 Livere 脚本是否已加载
+            if (typeof window.LivereTower !== 'undefined') {
+                // 脚本已加载，手动触发初始化
+                if (window.LivereTower.init) {
+                    window.LivereTower.init();
                 }
+                return;
+            }
 
-                // 检查脚本是否已在页面中
-                const existing = document.querySelector(`script[src="${LIVERE_SCRIPT_SRC}"]`);
-                if (existing) {
-                    scriptLoaded = true;
-                    // 如果已存在，等待加载完成
-                    if (existing.getAttribute('data-loaded') === 'true') {
-                        resolve();
-                    } else {
-                        existing.addEventListener('load', () => {
-                            existing.setAttribute('data-loaded', 'true');
-                            resolve();
-                        });
-                    }
-                    return;
-                }
+            // 脚本未加载，加载它
+            if (document.getElementById('livere-script')) {
+                return;
+            }
 
-                const script = document.createElement('script');
-                script.type = 'module';
-                script.src = LIVERE_SCRIPT_SRC;
-                script.addEventListener('load', () => {
-                    scriptLoaded = true;
-                    script.setAttribute('data-loaded', 'true');
-                    resolve();
-                });
-                document.head.appendChild(script);
-            });
-        }
-
-        async function setupLivere() {
-            if (!shouldShowComments(window.location.pathname)) return;
-
-            await loadScript();
-
-            // 脚本加载后稍微等待确保 Web Component 注册完成
-            await new Promise(resolve => setTimeout(resolve, 100));
-
-            injectLivere();
+            const script = document.createElement('script');
+            script.id = 'livere-script';
+            script.src = 'https://cdn-city.livere.com/js/embed.dist.js';
+            script.async = true;
+            document.body.appendChild(script);
         }
 
         // 监听 DOM 变化，在容器出现时自动注入
         function watchForContainer() {
-            return new Promise((resolve) => {
+            const observer = new MutationObserver(function(mutations) {
+                // 检查目标容器是否已出现
                 const target = document.querySelector('.app__article .article.text2')
                     || document.querySelector('.app__article');
 
-                if (target) {
-                    resolve();
-                    return;
+                if (target && !document.getElementById('lv-container') && shouldShowComments(window.location.pathname)) {
+                    injectLivere();
+                    // 注入成功后停止观察
+                    observer.disconnect();
                 }
-
-                const observer = new MutationObserver(function(mutations, obs) {
-                    const target = document.querySelector('.app__article .article.text2')
-                        || document.querySelector('.app__article');
-                    if (target) {
-                        obs.disconnect();
-                        resolve();
-                    }
-                });
-
-                observer.observe(document.body, {
-                    childList: true,
-                    subtree: true
-                });
             });
+
+            // 观察整个文档的变化
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+
+            // 也做一次立即检查
+            const target = document.querySelector('.app__article .article.text2')
+                || document.querySelector('.app__article');
+            if (target && shouldShowComments(window.location.pathname)) {
+                injectLivere();
+                observer.disconnect();
+            }
         }
 
         // SPA 路由处理
+        let lastPath = window.location.pathname;
+
         function handleRouteChange() {
             const currentPath = window.location.pathname;
             if (currentPath === lastPath) return;
             lastPath = currentPath;
 
-            // 移除旧的评论
-            const oldComment = document.querySelector('livere-comment');
-            if (oldComment) {
-                oldComment.remove();
+            // 移除旧的评论容器（保留脚本，因为 Livere 不支持卸载重载）
+            const oldContainer = document.getElementById('lv-container');
+            if (oldContainer) {
+                oldContainer.remove();
             }
 
+            // 如果不该显示评论，就什么都不做
             if (!shouldShowComments(currentPath)) return;
 
-            // 等待新页面渲染
-            setTimeout(async () => {
-                await watchForContainer();
-                injectLivere();
-            }, 300);
+            // 等待新页面渲染后再注入
+            setTimeout(watchForContainer, 300);
         }
 
         // 劫持路由
@@ -142,22 +115,13 @@
 
         // 首次加载
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', async () => {
-                lastPath = window.location.pathname;
-                await watchForContainer();
-                setupLivere();
-            });
+            document.addEventListener('DOMContentLoaded', watchForContainer);
         } else {
-            lastPath = window.location.pathname;
-            watchForContainer().then(() => setupLivere());
+            watchForContainer();
         }
     })();
 </script>
 <noscript>請啟用 JavaScript 以檢視評論功能。</noscript>
-
-
-<!--<livere-comment client-id="ux9AtiCdagTFzRHWOOkw"></livere-comment>-->
-<!--<script type="module" src="https://www.livere.org/livere-widget.js"></script>-->
 
 <!-- 来必力City版安装代码 -->
 <!--<div id="lv-container" data-id="city" data-uid="MTAyMC8yOTQyMS81OTg5">-->
