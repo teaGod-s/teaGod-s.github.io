@@ -2,8 +2,6 @@
 <script>
     (function() {
         const LIVERE_CLIENT_ID = 'ux9AtiCdagTFzRHWOOkw';
-        const LIVERE_SCRIPT_SRC = 'https://www.livere.org/livere-widget.js';
-        let scriptLoaded = false;
         let lastPath = window.location.pathname;
 
         function shouldShowComments(path) {
@@ -11,64 +9,31 @@
         }
 
         function injectLivere() {
-            // 已存在则不重复创建
             if (document.querySelector('livere-comment')) return;
 
-            // 目标容器：文章正文底部
             const target = document.querySelector('.app__article .article.text2')
                 || document.querySelector('.app__article');
 
-            if (!target) {
-                console.warn('Livere: 未找到文章容器');
-                return;
-            }
+            if (!target) return;
 
-            const commentEl = document.createElement('livere-comment');
-            commentEl.setAttribute('client-id', LIVERE_CLIENT_ID);
-            target.appendChild(commentEl);
+            // 完全模拟官方代码的写法
+            target.insertAdjacentHTML('beforeend',
+                `<livere-comment client-id="${LIVERE_CLIENT_ID}"></livere-comment>`
+            );
         }
 
-        function loadScript() {
-            return new Promise((resolve) => {
-                if (scriptLoaded) { resolve(); return; }
+        // 等待容器出现
+        function waitForContainer(callback) {
+            const target = document.querySelector('.app__article .article.text2')
+                || document.querySelector('.app__article');
+            if (target) { callback(); return; }
 
-                const existing = document.querySelector(`script[src="${LIVERE_SCRIPT_SRC}"]`);
-                if (existing) {
-                    scriptLoaded = true;
-                    resolve();
-                    return;
-                }
-
-                const script = document.createElement('script');
-                script.type = 'module';
-                script.src = LIVERE_SCRIPT_SRC;
-                script.onload = () => { scriptLoaded = true; resolve(); };
-                document.head.appendChild(script);
-            });
-        }
-
-        async function setupLivere() {
-            if (!shouldShowComments(window.location.pathname)) return;
-            await loadScript();
-            // 等 Web Component 注册完成
-            await new Promise(r => setTimeout(r, 200));
-            injectLivere();
-        }
-
-        // 等待文章容器出现
-        function waitForContainer() {
-            return new Promise((resolve) => {
+            const observer = new MutationObserver(function() {
                 const target = document.querySelector('.app__article .article.text2')
                     || document.querySelector('.app__article');
-                if (target) { resolve(); return; }
-
-                const observer = new MutationObserver((_, obs) => {
-                    const target = document.querySelector('.app__article .article.text2')
-                        || document.querySelector('.app__article');
-                    if (target) { obs.disconnect(); resolve(); }
-                });
-                observer.observe(document.body, { childList: true, subtree: true });
+                if (target) { observer.disconnect(); callback(); }
             });
+            observer.observe(document.body, { childList: true, subtree: true });
         }
 
         // SPA 路由切换
@@ -77,19 +42,16 @@
             if (currentPath === lastPath) return;
             lastPath = currentPath;
 
-            // 移除旧评论
             const oldEl = document.querySelector('livere-comment');
             if (oldEl) oldEl.remove();
 
             if (!shouldShowComments(currentPath)) return;
 
-            setTimeout(async () => {
-                await waitForContainer();
-                injectLivere();
+            setTimeout(() => {
+                waitForContainer(() => injectLivere());
             }, 300);
         }
 
-        // 劫持 history 方法
         ['pushState', 'replaceState'].forEach(method => {
             const original = history[method];
             history[method] = function(...args) {
@@ -103,17 +65,22 @@
 
         // 首次加载
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', async () => {
+            document.addEventListener('DOMContentLoaded', () => {
                 lastPath = window.location.pathname;
-                await waitForContainer();
-                setupLivere();
+                if (!shouldShowComments(lastPath)) return;
+                waitForContainer(() => injectLivere());
             });
         } else {
             lastPath = window.location.pathname;
-            waitForContainer().then(() => setupLivere());
+            if (!shouldShowComments(lastPath)) return;
+            waitForContainer(() => injectLivere());
         }
     })();
 </script>
+
+<!-- Livere 官方脚本，原样保留 -->
+<script type="module" src="https://www.livere.org/livere-widget.js"></script>
+
 <noscript>請啟用 JavaScript 以檢視評論功能。</noscript>
 
 <!--<livere-comment client-id="ux9AtiCdagTFzRHWOOkw"></livere-comment>-->
