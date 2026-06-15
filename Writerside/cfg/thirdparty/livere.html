@@ -1,93 +1,29 @@
-<!-- Livere comments with SPA support -->
 <script>
     (function () {
         const CLIENT_ID = 'ux9AtiCdagTFzRHWOOkw';
 
-        // =========================
-        // 1. Global Singleton Guard
-        // =========================
-        if (window.__livere_adapter_inited) return;
-        window.__livere_adapter_inited = true;
+        function mountLivere() {
 
-        let currentContainer = null;
-        let observer = null;
-        let scheduled = false;
+            const container = document.querySelector('.app__article');
 
-        // =========================
-        // 2. Core Logic
-        // =========================
-
-        function getArticleContainer() {
-            return document.querySelector('.app__article .article.text2')
-                || document.querySelector('.app__article');
-        }
-
-        function isValidPage() {
-            // Writerside SPA 本质：只要 article 存在就是文档页
-            return !!getArticleContainer();
-        }
-
-        function ensureCleanState(container) {
-            const existing = container.querySelector('livere-comment');
-            if (existing) existing.remove();
-        }
-
-        function renderLivere(container) {
             if (!container) return;
 
-            ensureCleanState(container);
+            if (container.querySelector('livere-comment')) return;
 
-            const el = document.createElement('livere-comment');
-            el.setAttribute('client-id', CLIENT_ID);
+            const comment = document.createElement('livere-comment');
+            comment.setAttribute('client-id', CLIENT_ID);
 
-            container.appendChild(el);
+            container.appendChild(comment);
+
+            console.log('[Livere] mounted');
         }
 
-        // =========================
-        // 3. Safe Mount Pipeline
-        // =========================
+        function start() {
 
-        function mount() {
-            const container = getArticleContainer();
-            if (!container) return;
+            mountLivere();
 
-            currentContainer = container;
-            renderLivere(container);
-        }
-
-        function scheduleMount() {
-            if (scheduled) return;
-            scheduled = true;
-
-            requestAnimationFrame(() => {
-                scheduled = false;
-                mount();
-            });
-        }
-
-        // =========================
-        // 4. DOM Watcher (SPA safe)
-        // =========================
-
-        function startObserver() {
-            if (observer) return;
-
-            observer = new MutationObserver(() => {
-                const container = getArticleContainer();
-
-                if (!container) return;
-
-                // 容器变化（切页面 / SPA rerender）
-                if (container !== currentContainer) {
-                    currentContainer = container;
-                    scheduleMount();
-                    return;
-                }
-
-                // 容器存在但组件丢失（Writerside rerender）
-                if (!container.querySelector('livere-comment')) {
-                    scheduleMount();
-                }
+            const observer = new MutationObserver(() => {
+                mountLivere();
             });
 
             observer.observe(document.body, {
@@ -96,50 +32,11 @@
             });
         }
 
-        // =========================
-        // 5. SPA Navigation Hook
-        // =========================
-
-        function hookHistory() {
-            const wrap = (type) => {
-                const original = history[type];
-                history[type] = function () {
-                    const result = original.apply(this, arguments);
-                    scheduleMount();
-                    return result;
-                };
-            };
-
-            wrap('pushState');
-            wrap('replaceState');
-
-            window.addEventListener('popstate', scheduleMount);
-            window.addEventListener('hashchange', scheduleMount);
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', start);
+        } else {
+            start();
         }
-
-        // =========================
-        // 6. Init
-        // =========================
-
-        function init() {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', boot);
-            } else {
-                boot();
-            }
-        }
-
-        function boot() {
-            if (!isValidPage()) return;
-
-            startObserver();
-            hookHistory();
-
-            // 首次 mount
-            scheduleMount();
-        }
-
-        init();
 
     })();
 </script>
