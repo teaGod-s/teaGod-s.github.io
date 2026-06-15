@@ -1,50 +1,87 @@
+<!-- Livere comments with SPA support -->
 <script>
-    (function () {
-        const CLIENT_ID = 'ux9AtiCdagTFzRHWOOkw';
+    (function() {
+        const LIVERE_CLIENT_ID = 'ux9AtiCdagTFzRHWOOkw';
+        let lastPath = window.location.pathname;
 
-        function mountLivere() {
-
-            const container = document.querySelector('.app__article');
-
-            if (!container) return;
-
-            if (container.querySelector('livere-comment')) return;
-
-            const comment = document.createElement('livere-comment');
-            comment.setAttribute('client-id', CLIENT_ID);
-
-            container.appendChild(comment);
-
-            console.log('[Livere] mounted');
+        function shouldShowComments(path) {
+            return /\.html$/i.test(path);
         }
 
-        function start() {
+        function injectLivere() {
+            if (document.querySelector('livere-comment')) return;
 
-            mountLivere();
+            const target = document.querySelector('.app__article .article.text2')
+                || document.querySelector('.app__article');
 
-            const observer = new MutationObserver(() => {
-                mountLivere();
-            });
+            if (!target) return;
 
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
+            // 完全模拟官方代码的写法
+            target.insertAdjacentHTML('beforeend',
+                `<livere-comment client-id="${LIVERE_CLIENT_ID}"></livere-comment>`
+            );
         }
 
+        // 等待容器出现
+        function waitForContainer(callback) {
+            const target = document.querySelector('.app__article .article.text2')
+                || document.querySelector('.app__article');
+            if (target) { callback(); return; }
+
+            const observer = new MutationObserver(function() {
+                const target = document.querySelector('.app__article .article.text2')
+                    || document.querySelector('.app__article');
+                if (target) { observer.disconnect(); callback(); }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+
+        // SPA 路由切换
+        function handleRouteChange() {
+            const currentPath = window.location.pathname;
+            if (currentPath === lastPath) return;
+            lastPath = currentPath;
+
+            const oldEl = document.querySelector('livere-comment');
+            if (oldEl) oldEl.remove();
+
+            if (!shouldShowComments(currentPath)) return;
+
+            setTimeout(() => {
+                waitForContainer(() => injectLivere());
+            }, 300);
+        }
+
+        ['pushState', 'replaceState'].forEach(method => {
+            const original = history[method];
+            history[method] = function(...args) {
+                const result = original.apply(this, args);
+                setTimeout(handleRouteChange, 100);
+                return result;
+            };
+        });
+        window.addEventListener('popstate', () => setTimeout(handleRouteChange, 100));
+        window.addEventListener('hashchange', () => setTimeout(handleRouteChange, 100));
+
+        // 首次加载
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', start);
+            document.addEventListener('DOMContentLoaded', () => {
+                lastPath = window.location.pathname;
+                if (!shouldShowComments(lastPath)) return;
+                waitForContainer(() => injectLivere());
+            });
         } else {
-            start();
+            lastPath = window.location.pathname;
+            if (!shouldShowComments(lastPath)) return;
+            waitForContainer(() => injectLivere());
         }
-
     })();
 </script>
 
-<!-- Livere 官方脚本 -->
+<!-- Livere 官方脚本，原样保留 -->
 <script type="module" src="https://www.livere.org/livere-widget.js"></script>
 
-<noscript>请启用 JavaScript 以查看评论功能。</noscript>
+<noscript>請啟用 JavaScript 以檢視評論功能。</noscript>
 
 <!--<livere-comment client-id="ux9AtiCdagTFzRHWOOkw"></livere-comment>-->
 <!--<script type="module" src="https://www.livere.org/livere-widget.js"></script>-->
