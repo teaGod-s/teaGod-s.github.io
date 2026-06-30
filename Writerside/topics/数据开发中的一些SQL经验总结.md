@@ -153,7 +153,7 @@
     GROUP BY DATE(i.install_time)
 ```
 因为数据库有着丰富的时间日期处理函数，所以理论上上面的写法会有多个变种，但是核心思路不会变。  
-再进阶一点，上面的SQL是按日统计的，如果老板想按照周维度或者月维度去看这个报表，该怎么统计？（已经想疯狂骂街了）其实简单换一下<code>group by</code>条件就好了，下面请看代码
+再进阶一点，上面的SQL是按日统计的，如果老板想按照周维度或者月维度去看这个报表，该怎么统计？其实简单换一下`group by`条件就好了，下面请看代码
 <tabs>
     <tab title="周维度">
         <code-block lang="sql"><![CDATA[
@@ -189,4 +189,186 @@
     </tab>
 </tabs>
 
+## 多表关联时如何防止数据重复计算？{id="sql_3"}
+
+日常开发中经常会涉及到多表之间的`join`操作，但是`join`本身其实是有一点危险的，如果开发时没考虑到表与表之间的数量对应关系（比如一对多、多对多等），
+就对导致数据膨胀，也就是重复计算。下面来看个例子
+
+这是一个典型的电商场景，假设有四张表， 建表语句如下
+<tabs>
+    <tab title="用户表">
+        <code-block lang="sql">
+            CREATE TABLE users (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '用户ID',
+                name VARCHAR(50) NOT NULL COMMENT '用户姓名',
+                PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
+        </code-block>
+    </tab>
+    <tab title="商品表">
+        <code-block lang="sql">
+            CREATE TABLE products (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '商品ID',
+                name VARCHAR(100) NOT NULL COMMENT '商品名称',
+                category VARCHAR(50) NOT NULL COMMENT '商品分类（如：服装类）',
+                unit_price DECIMAL(10,2) NOT NULL COMMENT '单价',
+                stock INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '剩余库存',
+                PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品表';
+        </code-block>
+    </tab>
+    <tab title="订单表">
+        <code-block lang="sql">
+            CREATE TABLE orders (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '订单ID',
+                user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+                order_amount DECIMAL(10,2) NOT NULL COMMENT '订单金额',
+                paid_amount DECIMAL(10,2) NOT NULL COMMENT '支付金额',
+                pay_time DATETIME DEFAULT NULL COMMENT '支付时间',
+                PRIMARY KEY (id),
+                INDEX idx_user_id (user_id)  
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单表';
+        </code-block>
+    </tab>
+    <tab title="订单详情表">
+        <code-block lang="sql">
+            CREATE TABLE order_items (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '详情ID',
+                order_id BIGINT UNSIGNED NOT NULL COMMENT '订单ID',
+                product_id BIGINT UNSIGNED NOT NULL COMMENT '商品ID',
+                quantity INT UNSIGNED NOT NULL COMMENT '商品数量',
+                PRIMARY KEY (id),
+                INDEX idx_order_id (order_id), 
+                INDEX idx_product_id (product_id) 
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单详情表';
+        </code-block>
+    </tab>
+</tabs>
+
+这些表之间的对应关系如下
+```mermaid
+erDiagram
+    users ||--o{ orders : "一个用户有多个订单"
+    orders ||--|{ order_items : "一个订单包含多个详情"
+    products ||--o{ order_items : "一个商品对应多个订单详情"
+
+    users {
+        bigint id PK
+        varchar(50) name
+    }
+
+    orders {
+        bigint id PK
+        bigint user_id 
+        decimal order_amount
+        decimal paid_amount
+        datetime pay_time
+    }
+
+    order_items {
+        bigint id PK
+        bigint order_id 
+        bigint product_id 
+        int quantity
+    }
+
+    products {
+        bigint id PK
+        varchar(100) name
+        varchar(50) category
+        decimal unit_price
+        int stock
+    }
+```
+
+我们先来看一下测试数据，执行如下查询
+```sql
+SELECT o.order_amount, o.paid_amount, o.pay_time, oi.order_id, oi.product_id, 
+       oi.quantity, p.`name`, p.category, p.unit_price
+FROM orders AS o
+JOIN order_items as oi ON o.id = oi.order_id
+JOIN products as p ON oi.product_id = p.id
+```
+可以看到表中一共有2个订单：<br/>
+订单1服装类金额为 $99.90*1=99.90$，总金额为9098.90，减掉优惠后用户实际支付金额为9000.00 <br/>
+订单2服装类金额为 $99.90*2=199.80$，总金额为598.80，减掉优惠后用户实际支付金额为500.00
+
+| order_amount | paid_amount | pay_time            | order_id | product_id | quantity | name          | category | unit_price |
+|--------------|-------------|---------------------|----------|------------|----------|---------------|----------|------------|
+| 9098.90      | 9000.00     | 2026-06-15 10:30:00 | 1        | 1          | 1        | iPhone 15 Pro | 电子产品     | 8999.00    |
+| 9098.90      | 9000.00     | 2026-06-15 10:30:00 | 1        | 3          | 1        | 纯棉T恤          | 服装类      | 99.90      |
+| 598.80       | 500.00      | 2026-06-16 14:20:00 | 2        | 5          | 1        | 运动鞋           | 鞋靴类      | 399.00     |
+| 598.80       | 500.00      | 2026-06-16 14:20:00 | 2        | 3          | 2        | 纯棉T恤          | 服装类      | 99.90      |
+
+如果现在要按日统计 **服装类购买金额占总订单金额的占比**，我们可以这样写
+```SQL
+SELECT DATE(o.pay_time) AS stat_date,
+    sum(CASE WHEN p.category = "服装类" THEN p.unit_price*oi.quantity ELSE 0 END) /
+    sum(p.unit_price*oi.quantity) AS rate
+FROM orders AS o
+    JOIN order_items as oi ON o.id = oi.order_id
+    JOIN products as p ON oi.product_id = p.id
+GROUP BY DATE(o.pay_time)
+```
+这里注意我的分母用的是 `sum(p.unit_price*oi.quantity)` 而不是 `sum(o.order_amount)`，因为如果用后者，那每个订单的总金额会计算多次。
+
+为了让读者直观的感受到这种数据膨胀，我将两种分母的结果都计算了一遍，如下图，可以看到 `total_amount_2` 是 `total_amount_1` 的两倍。
+
+![两种口径的对比](sql3_diff_amount.png)
+
+因为本例中一条 `order` 记录关联了两条 `order_item` 记录，所以数据膨胀了两倍；如果关联 N 条 `order_item` 记录，那就会膨胀 N 倍，
+最终计算出来的结果会远远偏移我们想要的目标。
+
+那假如我们要按日统计 **服装类购买金额占总支付金额的占比** 呢？这时候分母没办法通过单价与数量运算得来，而只能使用 `paid_amount` 这个字段，那上面的 SQL
+就不能使用了，同时还要避免数据重复计算，有没有什么好方法一条 SQL 写出来呢？
+
+有的兄弟，有的
+
+我们可以使用窗口函数 `row_number()`，用它来对一对多中的“多”做编号，同时在聚合时只计算编号为 1 的记录，即只计算一次，从而达到去重效果。
+<tabs>
+    <tab title="使用窗口函数去重（适用MySQL8.0以上版本）">
+        <code-block lang="sql">
+            SELECT DATE(o.pay_time) AS stat_date, 
+            sum(CASE WHEN p.category = "服装类" THEN p.unit_price*oi.quantity ELSE 0 END) / 
+            sum(CASE WHEN oi.rn = 1 THEN o.paid_amount ELSE 0 END) AS rate
+            FROM orders AS o 
+            JOIN (
+                SELECT order_id, product_id, quantity, 
+                ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY id asc) as rn
+                FROM order_items
+            ) oi ON o.id = oi.order_id 
+            JOIN products as p ON oi.product_id = p.id
+            GROUP BY DATE(o.pay_time);
+        </code-block>
+    </tab>
+    <tab title="使用非等值连接去重（适用MySQL低版本）">
+        <code-block lang="sql"><![CDATA[            
+            SELECT DATE(o.pay_time) AS stat_date,
+            SUM(CASE WHEN p.category = '服装类' THEN p.unit_price * oi.quantity ELSE 0 END) /
+            SUM(CASE WHEN oi.first_item = 1 THEN o.paid_amount ELSE 0 END) AS rate
+            FROM orders AS o
+            JOIN (
+                SELECT 
+                    a.order_id,
+                    a.product_id,
+                    a.quantity,
+                    CASE WHEN a.id = MIN(b.id) THEN 1 ELSE 0 END AS first_item
+                FROM order_items a
+                LEFT JOIN order_items b ON a.order_id = b.order_id AND a.id >= b.id
+                GROUP BY a.order_id, a.product_id, a.quantity, a.id
+            ) oi ON o.id = oi.order_id
+            JOIN products AS p ON oi.product_id = p.id
+            GROUP BY DATE(o.pay_time);]]>
+        </code-block>
+    </tab>
+</tabs>
+
+虽然 MySQL 低版本中不支持窗口函数，但是却可以通过**非等值连接**的写法来实现与 `row_number()` 一样的效果，对应的 SQL 我也贴在上面了。
+
+**非等值连接**写法看起来可能比较绕，简单来说就是一张表 `join` 它自己，但是在 `on` 条件中用的是 `>=`、 `<=`、 `<`、 `<` 等非等号。
+这个概念我最初是在《SQL进阶教程》这本书里看到的，当时感觉惊为天人，原来 SQL 还能这么写！
+
+关于**非等值连接**本文后续就不再展开了，因为我写的肯定不如人家写得好。
+这本书里也详细介绍了 `EXISTS` 的使用方法，非常推荐给想要提升自己数据开发技术的大家读一读。
+![SQL进阶教程](sql_book.png)
 ### 未完待续。。。
