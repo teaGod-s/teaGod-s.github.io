@@ -27,7 +27,9 @@
         </code-block>
     </tab>
 </tabs>
-有两种写法，我简称为 横着写 或者 竖着写。 横着写就是用 <code>join</code>，竖着写就是用 <code>union all</code>，下面请看代码。
+
+有两种写法，我简称为 横着写 或者 竖着写。 横着写就是用 `join`，竖着写就是用 `union all`，下面请看代码。
+
 <tabs>
     <tab title="join写法（有坑）">
         <code-block lang="sql">
@@ -60,9 +62,10 @@
         </code-block>
     </tab>
 </tabs>
-我为什么说这个<code>join</code>写法有坑呢？因为可能某天有放款但是没还款；或者反过来，有还款没放款。那么在用日期关联的时候，就可能会丢数据，不管你是把<code>join</code>改成<code>left join</code>还是<code>right join</code>都解决不了问题。
 
-下面是针对这中<code>join</code>写法的两种优化版，解决了上述问题
+我为什么说这个 `join` 写法有坑呢？因为可能某天有放款但是没还款；或者反过来，有还款没放款。那么在用日期关联的时候，就可能会丢数据，不管你是把 `join` 改成 `left join` 还是 `right join` 都解决不了问题。
+
+下面是针对这中 `join` 写法的两种优化版，解决了上述问题
 <tabs>
     <tab title="join写法（再 join 一张日期表）">
         <code-block lang="sql">
@@ -103,10 +106,11 @@
         </code-block>
     </tab>
 </tabs>
-&emsp;&emsp;第一种优化版写法，新加了一张全日期的日期表，作为主表，然后<code>left join</code>另外两个表。第二种写法是用<code>full join</code>，即全外连接。<br/>
-&emsp;&emsp;两种写法都有个弊端，那就是都会存在空值的情况，你可以看到我在<code>SELECT</code>中大量使用了<code>COALESCE</code>、<code>IFNULL</code>等函数对空值做特殊处理。  
-而且在性能方面，两种写法都很糟糕。一个引入了一张额外的表，且写法很啰嗦。一种引入了<code>full join</code>，这是一种性能很差的语法，且有些数据库不支持。<br/>
-&emsp;&emsp;简而言之，遇到这种需求，<code>union all</code>写法是最优解。
+
+&emsp;&emsp;第一种优化版写法，新加了一张全日期的日期表，作为主表，然后 `left join` 另外两个表。第二种写法是用 `full join`，即全外连接。<br/>
+&emsp;&emsp;两种写法都有个弊端，那就是都会存在空值的情况，你可以看到我在 `SELECT` 中大量使用了 `COALESCE`、`IFNULL` 等函数对空值做特殊处理。  
+而且在性能方面，两种写法都很糟糕。一个引入了一张额外的表，且写法很啰嗦。一种引入了 `full join`，这是一种性能很差的语法，且有些数据库不支持。<br/>
+&emsp;&emsp;简而言之，遇到这种需求，`union all` 写法是最优解。
 
 ## 有转化关系的SQL该怎么写？{id="sql_2"}
 
@@ -135,11 +139,13 @@
         </code-block>
     </tab>
 </tabs>
+
 &emsp;&emsp;注册数是来自安装数，所以肯定小于等于安装数，就像漏斗一样。但是这个漏斗的出口是随着时间变化，越来越粗的。
 所以这种需求一般都会要求一次性查看多个时期内的转化数据。比如上文提到的T0安装数，即用户安装当天即完成注册的数量；T1安装数，即用户安装当天或第二天完成注册的总数量。<br/>
-&emsp;&emsp;一般遇到这种需求，没有经验的小白先不要慌（其实我当时已经有一点想骂街了）。他的核心解决思路，其实就是两表<code>join</code>后，<b>在 <code>CASE</code> 函数里用两个时间字段做对比。一个不变的时间，一个变化的时间。</b>
+&emsp;&emsp;一般遇到这种需求，没有经验的小白先不要慌（其实我当时已经有一点想骂街了）。他的核心解决思路，其实就是两表 `join` 后，<b>在 `CASE` 函数里用两个时间字段做对比。一个不变的时间，一个变化的时间。</b>
 拿本例来说，不变的时间就是安装时间，变化的时间就是注册时间。下面请看代码
-```sql
+
+```SQL
     SELECT DATE(i.install_time) AS install_date,
     COUNT(DISTINCT i.device_id) AS install_num,
     COUNT(DISTINCT CASE WHEN TIMESTAMPDIFF(HOUR, i.install_time, r.register_time) BETWEEN 0 AND 24 THEN r.id ELSE NULL END) AS register_in_24hour,
@@ -153,7 +159,7 @@
     GROUP BY DATE(i.install_time)
 ```
 因为数据库有着丰富的时间日期处理函数，所以理论上上面的写法会有多个变种，但是核心思路不会变。  
-再进阶一点，上面的SQL是按日统计的，如果老板想按照周维度或者月维度去看这个报表，该怎么统计？其实简单换一下`group by`条件就好了，下面请看代码
+再进阶一点，上面的SQL是按日统计的，如果老板想按照周维度或者月维度去看这个报表，该怎么统计？其实简单换一下 `group by` 条件就好了，下面请看代码
 <tabs>
     <tab title="周维度">
         <code-block lang="sql"><![CDATA[
@@ -191,7 +197,7 @@
 
 ## 多表关联时如何防止数据重复计算？{id="sql_3"}
 
-日常开发中经常会涉及到多表之间的`join`操作，但是`join`本身其实是有一点危险的，如果开发时没考虑到表与表之间的数量对应关系（比如一对多、多对多等），
+日常开发中经常会涉及到多表之间的 `join` 操作，但是 `join` 本身其实是有一点危险的，如果开发时没考虑到表与表之间的数量对应关系（比如一对多、多对多等），
 就对导致数据膨胀，也就是重复计算。下面来看个例子
 
 这是一个典型的电商场景，假设有四张表， 建表语句如下
@@ -348,11 +354,8 @@ GROUP BY DATE(o.pay_time)
             SUM(CASE WHEN oi.first_item = 1 THEN o.paid_amount ELSE 0 END) AS rate
             FROM orders AS o
             JOIN (
-                SELECT 
-                    a.order_id,
-                    a.product_id,
-                    a.quantity,
-                    CASE WHEN a.id = MIN(b.id) THEN 1 ELSE 0 END AS first_item
+                SELECT a.order_id, a.product_id, a.quantity,
+                CASE WHEN a.id = MIN(b.id) THEN 1 ELSE 0 END AS first_item
                 FROM order_items a
                 LEFT JOIN order_items b ON a.order_id = b.order_id AND a.id >= b.id
                 GROUP BY a.order_id, a.product_id, a.quantity, a.id
