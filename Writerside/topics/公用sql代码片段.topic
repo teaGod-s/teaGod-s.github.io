@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE topic SYSTEM "https://resources.jetbrains.com/writerside/1.0/html-entities.dtd">
+<topic xsi:noNamespaceSchemaLocation="https://resources.jetbrains.com/writerside/1.0/topic.v2.xsd"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" is-library="true" id="公用sql代码片段" title="公用SQL代码片段">
+    <!-- Put your snippets here -->
+
+    <snippet id="windows_distinct_sql">
+        <code-block lang="sql">
+            SELECT DATE(o.pay_time) AS stat_date,
+            sum(CASE WHEN p.category = "服装类" THEN p.unit_price*oi.quantity ELSE 0 END) /
+            sum(CASE WHEN oi.rn = 1 THEN o.paid_amount ELSE 0 END) AS rate
+            FROM orders AS o
+            JOIN (
+                SELECT order_id, product_id, quantity,
+                ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY id asc) as rn
+                FROM order_items
+                ) oi ON o.id = oi.order_id
+            JOIN products as p ON oi.product_id = p.id
+            GROUP BY DATE(o.pay_time);
+        </code-block>
+    </snippet>
+
+</topic>

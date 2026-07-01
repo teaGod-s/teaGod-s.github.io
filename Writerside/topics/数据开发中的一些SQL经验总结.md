@@ -112,7 +112,7 @@
 而且在性能方面，两种写法都很糟糕。一个引入了一张额外的表，且写法很啰嗦。一种引入了 `full join`，这是一种性能很差的语法，且有些数据库不支持。<br/>
 &emsp;&emsp;简而言之，遇到这种需求，`union all` 写法是最优解。
 
-## 有转化关系的SQL该怎么写？{id="sql_2"}
+## 有转化关系的SQL该怎么写？ {id="sql_2"}
 
 有转化关系的数据，意思就是各个统计字段间具有层级依赖特性，像个漏斗一样是分层的，每层数据都来自上层，但是一层比一层少。最经典的比如安装注册转化、曝光点击转化等。  
 
@@ -195,7 +195,7 @@
     </tab>
 </tabs>
 
-## 多表关联时如何防止数据重复计算？{id="sql_3"}
+## 多表关联时如何防止数据重复计算？ {id="sql_3"}
 
 日常开发中经常会涉及到多表之间的 `join` 操作，但是 `join` 本身其实是有一点危险的，如果开发时没考虑到表与表之间的数量对应关系（比如一对多、多对多等），
 就对导致数据膨胀，也就是重复计算。下面来看个例子
@@ -333,19 +333,7 @@ GROUP BY DATE(o.pay_time)
 我们可以使用窗口函数 `row_number()`，用它来对一对多中的“多”做编号，同时在聚合时只计算编号为 1 的记录，即只计算一次，从而达到去重效果。
 <tabs>
     <tab title="使用窗口函数去重（适用MySQL8.0以上版本）">
-        <code-block lang="sql">
-            SELECT DATE(o.pay_time) AS stat_date, 
-            sum(CASE WHEN p.category = "服装类" THEN p.unit_price*oi.quantity ELSE 0 END) / 
-            sum(CASE WHEN oi.rn = 1 THEN o.paid_amount ELSE 0 END) AS rate
-            FROM orders AS o 
-            JOIN (
-                SELECT order_id, product_id, quantity, 
-                ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY id asc) as rn
-                FROM order_items
-            ) oi ON o.id = oi.order_id 
-            JOIN products as p ON oi.product_id = p.id
-            GROUP BY DATE(o.pay_time);
-        </code-block>
+        <include from="公用sql代码片段.topic" element-id="windows_distinct_sql"/>
     </tab>
     <tab title="使用非等值连接去重（适用MySQL低版本）">
         <code-block lang="sql"><![CDATA[            
@@ -375,5 +363,49 @@ GROUP BY DATE(o.pay_time)
 这本书里也详细介绍了 `EXISTS` 的使用方法，非常推荐给想要提升自己数据开发技术的大家读一读。
 
 ![SQL进阶教程](sql_book.png)
+
+## 当子查询太多，SQL变得不再优雅时该怎么办？ {id="sql_4"}
+
+在我很长的一段职业生涯里，公司业务都是基于 MySQL5.7 构建的。所以每当遇到一些逻辑稍微复杂的报表，都会关联甚至嵌套很多子查询，冗长的SQL看起来实在不算优雅，
+开发者头疼，其他维护者难以理解。
+
+所以当我见到 CTE 这种细糠写法时，以后就再也不想用其他写法了。
+
+CTE 简单来说就是用 `WITH` 语句创建的子查询视图，它只是临时存在，可供后续查询时引用，并在SQL执行结束时销毁。它的语法长这样 `WITH cte_name AS ( ... )`
+
+我们可以用 CTE 写法来改造一下上面的窗口函数子查询版本SQL
+
+<compare first-title="使用窗口函数去重（子查询）" second-title="使用窗口函数去重（CTE）">
+<include from="公用sql代码片段.topic" element-id="windows_distinct_sql"/>
+<code-block lang="sql">
+            WITH oi AS (
+                SELECT order_id, product_id, quantity, 
+                ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY id asc) as rn
+                FROM order_items
+            ),
+            oip AS (
+                SELECT oi.*, 
+                CASE WHEN p.category = "服装类" THEN p.unit_price*oi.quantity ELSE 0 END AS clothes_amount
+                FROM oi JOIN products as p ON oi.product_id = p.id
+            )
+            SELECT DATE(o.pay_time) AS stat_date, 
+            sum(oip.clothes_amount) / 
+            sum(CASE WHEN oip.rn = 1 THEN o.paid_amount ELSE 0 END) AS rate
+            FROM orders AS o 
+            JOIN oip ON o.id = oip.order_id
+            GROUP BY DATE(o.pay_time);
+</code-block>
+</compare>
+
+可以看到，在使用 CTE 针对每个步骤做好阶段性视图后，最外层的 `SELECT` 语句变得异常简单。
+
+CTE的优势有很多：
+
+ - 提升复杂查询的可读性：将复杂的嵌套子查询拆解成有名字的 “步骤”，像写文章一样分段落，逻辑清晰。
+ - 支持多次引用：同一个 CTE 可以在后续查询中被多次引用，避免重复编写相同的子查询。
+ - 支持递归查询：这是 CTE 独有的能力（递归 CTE），适合查询树形或图形结构的数据，网上教程很多，本文就不再展开了。
+ - 便于调试和维护：可以分步执行 CTE，排查问题更快；修改时只需改对应的 CTE 部分。
+
+所以如果你的业务还是基于老版本 MySQL 构建的，是时候考虑一下升级了。
 
 ### 未完待续。。。
