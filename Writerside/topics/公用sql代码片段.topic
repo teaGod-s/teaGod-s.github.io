@@ -20,4 +20,56 @@
         </code-block>
     </snippet>
 
+    <snippet id="e_commerce_system_table">
+        <tabs>
+            <tab title="用户表" id="用户表">
+                <code-block lang="sql">
+                    CREATE TABLE users (
+                        id   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '用户ID',
+                        name VARCHAR(50) NOT NULL COMMENT '用户姓名',
+                        PRIMARY KEY (id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
+                </code-block>
+            </tab>
+            <tab title="商品表" id="商品表">
+                <code-block lang="sql">
+                    CREATE TABLE products (
+                        id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '商品ID',
+                        name       VARCHAR(100)   NOT NULL COMMENT '商品名称',
+                        category   VARCHAR(50)    NOT NULL COMMENT '商品分类（如：服装类）',
+                        unit_price DECIMAL(10, 2) NOT NULL COMMENT '单价',
+                        stock      INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '剩余库存',
+                        PRIMARY KEY (id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品表';
+                </code-block>
+            </tab>
+            <tab title="订单表" id="订单表">
+                <code-block lang="sql">
+                    CREATE TABLE orders (
+                        id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '订单ID',
+                        user_id      BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+                        order_amount DECIMAL(10, 2) NOT NULL COMMENT '订单金额',
+                        paid_amount  DECIMAL(10, 2) NOT NULL COMMENT '支付金额',
+                        pay_time     DATETIME DEFAULT NULL COMMENT '支付时间',
+                        PRIMARY KEY (id),
+                        INDEX        idx_user_id (user_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单表';
+                </code-block>
+            </tab>
+            <tab title="订单详情表" id="订单详情表">
+                <code-block lang="sql">
+                    CREATE TABLE order_items (
+                        id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '详情ID',
+                        order_id   BIGINT UNSIGNED NOT NULL COMMENT '订单ID',
+                        product_id BIGINT UNSIGNED NOT NULL COMMENT '商品ID',
+                        quantity   INT UNSIGNED NOT NULL COMMENT '商品数量',
+                        PRIMARY KEY (id),
+                        INDEX      idx_order_id (order_id),
+                        INDEX      idx_product_id (product_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单详情表';
+                </code-block>
+            </tab>
+        </tabs>
+    </snippet>
+
 </topic>

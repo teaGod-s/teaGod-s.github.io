@@ -201,55 +201,7 @@
 就对导致数据膨胀，也就是重复计算。下面来看个例子
 
 这是一个典型的电商场景，假设有四张表， 建表语句如下
-<tabs>
-    <tab title="用户表">
-        <code-block lang="sql">
-            CREATE TABLE users (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '用户ID',
-                name VARCHAR(50) NOT NULL COMMENT '用户姓名',
-                PRIMARY KEY (id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
-        </code-block>
-    </tab>
-    <tab title="商品表">
-        <code-block lang="sql">
-            CREATE TABLE products (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '商品ID',
-                name VARCHAR(100) NOT NULL COMMENT '商品名称',
-                category VARCHAR(50) NOT NULL COMMENT '商品分类（如：服装类）',
-                unit_price DECIMAL(10,2) NOT NULL COMMENT '单价',
-                stock INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '剩余库存',
-                PRIMARY KEY (id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品表';
-        </code-block>
-    </tab>
-    <tab title="订单表">
-        <code-block lang="sql">
-            CREATE TABLE orders (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '订单ID',
-                user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
-                order_amount DECIMAL(10,2) NOT NULL COMMENT '订单金额',
-                paid_amount DECIMAL(10,2) NOT NULL COMMENT '支付金额',
-                pay_time DATETIME DEFAULT NULL COMMENT '支付时间',
-                PRIMARY KEY (id),
-                INDEX idx_user_id (user_id)  
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单表';
-        </code-block>
-    </tab>
-    <tab title="订单详情表">
-        <code-block lang="sql">
-            CREATE TABLE order_items (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '详情ID',
-                order_id BIGINT UNSIGNED NOT NULL COMMENT '订单ID',
-                product_id BIGINT UNSIGNED NOT NULL COMMENT '商品ID',
-                quantity INT UNSIGNED NOT NULL COMMENT '商品数量',
-                PRIMARY KEY (id),
-                INDEX idx_order_id (order_id), 
-                INDEX idx_product_id (product_id) 
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订单详情表';
-        </code-block>
-    </tab>
-</tabs>
+<include from="公用sql代码片段.topic" element-id="e_commerce_system_table"></include>
 
 这些表之间的对应关系如下
 ```mermaid
@@ -333,7 +285,7 @@ GROUP BY DATE(o.pay_time)
 我们可以使用窗口函数 `row_number()`，用它来对一对多中的“多”做编号，同时在聚合时只计算编号为 1 的记录，即只计算一次，从而达到去重效果。
 <tabs>
     <tab title="使用窗口函数去重（适用MySQL8.0以上版本）">
-        <include from="公用sql代码片段.topic" element-id="windows_distinct_sql"/>
+        <include from="公用sql代码片段.topic" element-id="windows_distinct_sql"></include>
     </tab>
     <tab title="使用非等值连接去重（适用MySQL低版本）">
         <code-block lang="sql"><![CDATA[            
@@ -376,7 +328,7 @@ CTE 简单来说就是用 `WITH` 语句创建的子查询视图，它只是临�
 我们可以用 CTE 写法来改造一下上面的窗口函数子查询版本SQL
 
 <compare first-title="使用窗口函数去重（子查询）" second-title="使用窗口函数去重（CTE）">
-<include from="公用sql代码片段.topic" element-id="windows_distinct_sql"/>
+<include from="公用sql代码片段.topic" element-id="windows_distinct_sql"></include>
 <code-block lang="sql">
             WITH oi AS (
                 SELECT order_id, product_id, quantity, 

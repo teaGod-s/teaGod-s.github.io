@@ -8,7 +8,10 @@
 
     <toc-element topic="About-Me.md"/>
     <toc-element topic="技术文章.md">
+        <toc-element topic="工具推荐.md">
+        </toc-element>
         <toc-element topic="SQL.md">
+            <toc-element topic="使用Atlas管理数据库Schema变更.md"/>
             <toc-element topic="数据开发中的一些SQL经验总结.md"/>
         </toc-element>
         <toc-element topic="Golang.md">
