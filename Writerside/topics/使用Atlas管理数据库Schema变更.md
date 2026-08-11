@@ -115,150 +115,446 @@ atlas schema apply \
 
 可以看到 dev-url 参数是 Atlas 实现数据库自动化 Migration 的关键。
 
-在本条命令执行后， Atlas 会干4件事
+在本条命令执行后，Atlas 会干4件事
+<procedure title="atlas schema apply 执行原理" id="atlas_schema_apply_theory">
+    <step>Atlas 会调用 docker 拉起一个临时数据库实例，然后将本地定义好的 schema 即建表语句先应用到 dev-url 所在的临时库中。</step>
+    <step>随后 Atlas 会拿 dev-url 所在实例的 schema 与 url 所在目标库实例的 schema 做对比计算。计算出来的差异部分 Atlas 会生成 SQL 工单来供我们审批， 你可以选择通过或者是拒绝。</step>
+    <step>如果审批通过，Atlas 会自动将差异 SQL 放在目标库实例上执行，最终达成的效果是目标库的 schema 与本地代码仓库声明的 schema 保持一致。 </step>
+    <step>命令执行完后重置 dev-url 所在实例的 schema。由于在本例中使用的是 docker，所以临时拉起的 docker 容器会自动销毁。</step>
+</procedure>
 
-1. Atlas 会调用 docker 拉起一个临时数据库实例，然后将本地定义好的 schema 即建表语句先应用到 dev-url 所在的临时库中。
-2. 随后 Atlas 会拿 dev-url 所在实例的 schema 与 url 所在目标库实例的 schema 做对比计算。计算出来的差异部分 Atlas 会生成 SQL 工单来供我们审批， 你可以选择通过或者是拒绝。
-3. 如果审批通过，Atlas 会自动将差异 SQL 放在目标库实例上执行，最终达成的效果是目标库的 schema 与本地代码仓库声明的 schema 保持一致。 
-4. 命令执行完后重置 dev-url 所在实例的 schema。由于在本例中使用的是 docker，所以临时拉起的 docker 容器会自动销毁。
+接下来跟我在实际项目中搭建一个声明式工作流：
 
-接下来我们来做个实验：
-
-第一步：首先在目标库中新建4张表
-<include from="公用sql代码片段.topic" element-id="e_commerce_system_table"></include>
-
-第二步：修改本地代码库中的 `orders.sql` 和 `order_item.sql` 两个文件
-<tabs>
-    <tab title="orders.sql">
-        <code-block lang="sql">
-            CREATE TABLE `orders` (
-              `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '订单ID',
-              `user_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT '用户ID',
-              `order_amount` decimal(10,2) NOT NULL DEFAULT 0 COMMENT '订单金额',
-              `paid_amount` decimal(10,2) NOT NULL DEFAULT 0 COMMENT '支付金额',
-              `pay_time` datetime DEFAULT NULL COMMENT '支付时间',
-              PRIMARY KEY (`id`),
-              KEY `idx_user_id` (`user_id`)
-            ) ENGINE=InnoDB COMMENT='订单表';
+<procedure title="实际项目中的声明式工作流搭建过程" id="declarative-atlas">
+    <step>
+        <p>首先在目标库中新建4张表</p>
+        <include from="公用sql代码片段.topic" element-id="e_commerce_system_table"></include>
+    </step>
+    <step>
+        <p>修改本地代码库中的 <code>orders.sql</code> 和 <code>order_item.sql</code> 两个文件</p>
+        <tabs>
+            <tab title="orders.sql">
+                <code-block lang="sql">
+                    CREATE TABLE `orders` (
+                      `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '订单ID',
+                      `user_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT '用户ID',
+                      `order_amount` decimal(10,2) NOT NULL DEFAULT 0 COMMENT '订单金额',
+                      `paid_amount` decimal(10,2) NOT NULL DEFAULT 0 COMMENT '支付金额',
+                      `pay_time` datetime DEFAULT NULL COMMENT '支付时间',
+                      PRIMARY KEY (`id`),
+                      KEY `idx_user_id` (`user_id`)
+                    ) ENGINE=InnoDB COMMENT='订单表';
+                </code-block>
+            </tab>
+            <tab title="order_item.sql">
+                <code-block lang="sql">
+                    CREATE TABLE `order_items` (
+                       `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '详情ID',
+                       `order_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT '订单ID',
+                       `product_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT '商品ID',
+                       `quantity` int unsigned NOT NULL DEFAULT 0 COMMENT '商品数量',
+                       PRIMARY KEY (`id`),
+                       KEY `idx_order_id` (`order_id`),
+                       KEY `idx_product_id` (`product_id`)
+                    ) ENGINE=InnoDB COMMENT='订单详情表';
+                </code-block>
+            </tab>
+        </tabs>
+        <p>可以看到 代码库中的两个 sql 文件与目标库的表结构基本一样，唯独多了 <code>DEFAULT 0</code> ，但仅仅如此也会造成表结构差异。</p>
+        <p>幸运的是 Atlas 可以检查到这点，并生成对应的 <code>ALTER</code> 语句。</p>
+    </step>
+    <step>
+        <p>在本地代码库根目录新建一个 <code>atlas.hcl</code> 文件，填入如下代码</p>
+        <code-block lang="hcl">
+                # 定义开发测试用的临时沙箱数据库（Dev Database），与业务无关
+                # PS:因为我本地测试时使用 docker 一直失败，所以这里改成了我自己创建的一个空白库
+                variable "dev_url" {
+                  type    = string
+                  default = "mysql://root:123456@127.0.0.1:3307/altas_dev"
+                }
+                # 1. 本地开发环境（声明式 Schema 模式）
+                env "order_local" {
+                  url = "mysql://root:123456@127.0.0.1:3307/wsl_test" # 目标数据库
+                  src = "file://app/order/sql/schema" # Schema 声明文件路径
+                  dev = var.dev_url # 计算 diff 需要 Dev 数据库
+                }
         </code-block>
-    </tab>
-    <tab title="order_item.sql">
-        <code-block lang="sql">
-            CREATE TABLE `order_items` (
-               `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '详情ID',
-               `order_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT '订单ID',
-               `product_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT '商品ID',
-               `quantity` int unsigned NOT NULL DEFAULT 0 COMMENT '商品数量',
-               PRIMARY KEY (`id`),
-               KEY `idx_order_id` (`order_id`),
-               KEY `idx_product_id` (`product_id`)
-            ) ENGINE=InnoDB COMMENT='订单详情表';
+        <p>我们在这个 <code>atlas.hcl</code> 文件里，把刚才的 Atlas 命令参数给持久化了，并且跟项目代码一起用 Git 管理。</p>
+        <p>它就像 docker compose 中的 <code>docker-compose.yml</code> 文件一样，会简化我们的基础命令，</p>
+    </step>
+    <step>
+        <p>接下来我们执行</p>
+        <code-block lang="shell">
+            atlas schema apply --env order_local
         </code-block>
-    </tab>
-</tabs>
+        <p>结果如下所示，Atlas 会等待我们审批，是拒绝（Abort）还是通过（Approve）</p>
+        <img src="atlas_declarative_with_drop.png" alt="atlas 声明式 migration 默认版" border-effect="line"/>
+        <p>但是我们发现 Atlas 除了生成 <code>orders</code> 和 <code>order_items</code> 两张表的 <code>ALTER</code> 语句之外，把我们另外两张表（ <code>products</code> 和 <code>users</code> ）也 <code>DROP</code> 掉了。</p>
+        <p><code>DROP</code> 语句可是一个非常高危的操作！！！生产环境这么用可是要完蛋。所以我们接下来要拦截一下 <code>DROP</code> 语句。</p>
+    </step>
+    <step>拒掉（Abort）刚才的工单。</step>
+    <step>
+        <p>再次修改 `atlas.hcl` 文件，将 `order_local` 代码块改成下面这样：</p>
+        <code-block lang="hcl">
+            # 1. 本地开发环境（声明式 Schema 模式）
+            env "order_local" {
+              url = "mysql://root:123456@127.0.0.1:3307/wsl_test" # 目标数据库
+              src = "file://app/order/sql/schema" # Schema 声明文件路径
+              dev = var.dev_url # 计算 diff 需要 Dev 数据库
+              diff {
+                  skip {
+                      drop_table  = true # 忽略 drop 等高危操作
+                      drop_schema = true
+                  }
+              }
+            }
+        </code-block>
+    </step>
+    <step>
+        <p>在控制台执行如下命令</p>
+        <code-block lang="shell">
+            atlas schema apply --env order_local --dry-run
+        </code-block>
+        <p>加上 dry-run 参数后代表该命令为“试运行”，所以不会生成实际的工单，也不会对目标库执行任何写入操作。</p>
+        <img src="atlas_declarative_without_drop.png" alt="atlas 声明式 migration 过滤 drop 版" border-effect="line"/>
+        <p>可以看到现在只剩下 <code>ALTER</code> 语句了。接下来把 dry-run 参数去掉，再次执行命令，并选择审批通过（Approve），结果如下所示</p>
+        <code-block lang="Shell"><![CDATA[
+            ➜  hello-zero git:(master) ✗ atlas schema apply --env order_local          
+            Planning migration statements (2 in total):
 
-可以看到 代码库中的两个 sql 文件与目标库的表结构基本一样，唯独多了 `DEFAULT 0`，但仅仅如此也会造成表结构差异。
-幸运的是 Atlas 可以检查到这点，并生成对应的 `ALTER` 语句。
-
-第三步：在本地代码库根目录新建一个 `atlas.hcl` 文件，填入如下代码
-```hcl
-# 定义开发测试用的临时沙箱数据库（Dev Database），与业务无关
-# PS:因为我本地测试时使用 docker 一直失败，所以这里改成了我自己创建的一个空白库
-variable "dev_url" {
-  type    = string
-  default = "mysql://root:123456@127.0.0.1:3307/altas_dev"
-}
-# 1. 本地开发环境（声明式 Schema 模式）
-env "order_local" {
-  url = "mysql://root:123456@127.0.0.1:3307/wsl_test" # 目标数据库
-  src = "file://app/order/sql/schema" # Schema 声明文件路径
-  dev = var.dev_url # 计算 diff 需要 Dev 数据库
-}
-```
-我们在这个 `atlas.hcl` 文件里，把刚才的 Atlas 命令参数给持久化了，并且跟项目代码一起用 Git 管理。
-
-它就像 docker compose 中的 `docker-compose.yml` 文件一样，会简化我们的基础命令，
-
-第四步：接下来我们执行
-```shell
-atlas schema apply --env order_local
-```
-结果如下所示，Atlas 会等待我们审批，是拒绝（Abort）还是通过（Approve）
-
-![atlas 声明式 migration 默认版](atlas_declarative_with_drop.png)
-
-但是我们发现 Atlas 除了生成 `orders` 和 `order_items` 两张表的 `ALTER` 语句之外，把我们另外两张表（`products` 和 `users`）也 `DROP` 掉了。
-
-`DROP` 语句可是一个非常高危的操作！！！生产环境这么用可是要完蛋。所以我们接下来要拦截一下 `DROP` 语句。
-
-第五步： 拒掉（Abort）刚才的工单。
-
-第六步：再次修改 `atlas.hcl` 文件，将 `order_local` 代码块改成下面这样：
-```HCL
-# 1. 本地开发环境（声明式 Schema 模式）
-env "order_local" {
-  url = "mysql://root:123456@127.0.0.1:3307/wsl_test" # 目标数据库
-  src = "file://app/order/sql/schema" # Schema 声明文件路径
-  dev = var.dev_url # 计算 diff 需要 Dev 数据库
-  diff {
-      skip {
-          drop_table  = true # 忽略 drop 等高危操作
-          drop_schema = true
-      }
-  }
-}
-```
-第七步：在控制台执行如下命令
-```shell
-atlas schema apply --env order_local --dry-run
-```
-加上 dry-run 参数后代表该命令为“试运行”，所以不会生成实际的工单，也不会对目标库执行任何写入操作。
-
-![atlas 声明式 migration 过滤 drop 版](atlas_declarative_without_drop.png)
-
-可以看到现在只剩下 `ALTER` 语句了。接下来把 dry-run 参数去掉，再次执行命令，并选择审批通过（Approve），结果如下所示
-```shell
-➜  hello-zero git:(master) ✗ atlas schema apply --env order_local          
-Planning migration statements (2 in total):
-
-  -- modify "order_items" table:
-    -> ALTER TABLE `order_items` MODIFY COLUMN `order_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "订单ID", MODIFY COLUMN `product_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "商品ID", MODIFY COLUMN `quantity` int unsigned NOT NULL DEFAULT 0 COMMENT "商品数量";
-  -- modify "orders" table:
-    -> ALTER TABLE `orders` MODIFY COLUMN `user_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "用户ID", MODIFY COLUMN `order_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "订单金额", MODIFY COLUMN `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "支付金额";
-
--------------------------------------------                                                                                                        
-                                                                                                                                                   
-Analyzing planned statements (2 in total):                                                                                                         
-
-  -- no diagnostics found
-
-  -------------------------
-  -- 119.850006ms
-  -- 2 schema changes
-
--------------------------------------------                                                                                                        
-                                                                                                                                                   
-Applying approved migration (2 statements in total):
-
-  -- modify "order_items" table
-    -> ALTER TABLE `order_items` MODIFY COLUMN `order_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "订单ID", MODIFY COLUMN `product_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "商品ID", MODIFY COLUMN `quantity` int unsigned NOT NULL DEFAULT 0 COMMENT "商品数量";
-  -- ok (47.962508ms)
-
-  -- modify "orders" table
-    -> ALTER TABLE `orders` MODIFY COLUMN `user_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "用户ID", MODIFY COLUMN `order_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "订单金额", MODIFY COLUMN `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "支付金额";
-  -- ok (22.286367ms)
-
-  -------------------------
-  -- 70.423409ms
-  -- 1 migration
-  -- 2 sql statements
-```
-整个声明式工作流就跑通了，以后改动表结构完全不用手写 `ALTER` 语句，怎么样是不是很方便？
+            -- modify "order_items" table:
+            -> ALTER TABLE `order_items` MODIFY COLUMN `order_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "订单ID", MODIFY COLUMN `product_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "商品ID", MODIFY COLUMN `quantity` int unsigned NOT NULL DEFAULT 0 COMMENT "商品数量";
+            -- modify "orders" table:
+            -> ALTER TABLE `orders` MODIFY COLUMN `user_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "用户ID", MODIFY COLUMN `order_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "订单金额", MODIFY COLUMN `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "支付金额";
+            
+            -------------------------------------------                                                                                                        
+            
+            Analyzing planned statements (2 in total):
+            
+            -- no diagnostics found
+            
+              -------------------------
+            -- 119.850006ms
+            -- 2 schema changes
+            
+            -------------------------------------------                                                                                                        
+            
+            Applying approved migration (2 statements in total):
+            
+            -- modify "order_items" table
+            -> ALTER TABLE `order_items` MODIFY COLUMN `order_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "订单ID", MODIFY COLUMN `product_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "商品ID", MODIFY COLUMN `quantity` int unsigned NOT NULL DEFAULT 0 COMMENT "商品数量";
+            -- ok (47.962508ms)
+            
+            -- modify "orders" table
+            -> ALTER TABLE `orders` MODIFY COLUMN `user_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "用户ID", MODIFY COLUMN `order_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "订单金额", MODIFY COLUMN `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "支付金额";
+            -- ok (22.286367ms)
+            
+              -------------------------
+            -- 70.423409ms
+            -- 1 migration
+            -- 2 sql statements
+        ]]>
+</code-block>
+    </step>
+    <p>整个声明式工作流就跑通了。</p>
+    <warning>建议实际应用中一定要加上第6步的约束，这项才能避免 <code>DROP</code> 误操作带来的生产事故！！！</warning>
+</procedure>
 
 另外由于我使用的是 go-zero 框架，model 层代码也是由 sql 文件生成的。
 
-所以我每次想改表结构只需改 sql 文件就行，model 层代码与目标库 schema 全都靠自动化工具自己搞定，省时又省力，开发体验直接起飞~
-
-<warning>建议实际应用中一定要加上第六步的约束，这项才能避免 `DROP` 误操作带来的生产事故！！！</warning>
+所以我每次想改表结构时，只需改 sql 文件这一处约束就行，model 层代码与目标库 schema 全都靠自动化工具自己搞定，完全不用手写 `ALTER` 语句，怎么样是不是很方便？
 
 ## Atlas 版本化工作流 {id="atlas_5"}
+上面讲的声明式工作流，其实只适合本地开发环境或者测试环境。因为它追求速度，允许灵活试错。
+但是生产环境要求严格审计，每次变更需可追溯、可回滚，且通常要经过 Code Review， 所以最适合生产环境的是下面要讲的版本化工作流。
+
+由于版本化工作流涉及到的命令比较多，所以我们直接在实际项目中搭建一个版本化工作流来看看它到底怎么用：
+<procedure title="实际项目中的版本化工作流搭建过程" id="versioned-atlas-default">
+    <step>默认设置下，版本化工作流要求目标库从零开始版本化管理，所以我们先新建一个空白库 <code>CREATE DATABASE wsl_prod;</code></step>
+    <step>
+        <p>接下来在 <code>atlas.hcl</code> 文件中追加如下内容</p>
+        <code-block lang="hcl">
+            # 2. 团队协作/生产环境（版本化 Migration 模式）
+            env "order_prod" {
+              url = "mysql://root:123456@127.0.0.1:3307/wsl_prod" # 目标数据库
+              src = "file://app/order/sql/schema" # Schema 声明文件路径（生成 migration 时比对的源）
+              dev = var.dev_url # 计算 diff 需要 Dev 数据库
+              # 迁移脚本存储目录 (存放生成的 202608061000_init.sql 等)
+              migration {
+                dir = "file://app/order/sql/migrations"
+              }
+              diff {
+                  skip {
+                      drop_table  = true # 忽略 drop 等高危操作
+                      drop_schema = true
+                  }
+              }
+            }
+        </code-block>
+        <p>可以看到版本化工作流配置中，多了一个 migration 设置项，此设置项指定了一个目录，即每个版本的 SQL 迁移脚本的本地存放目录。</p>
+        <p>目前我本地环境这个目录下没有任何文件。</p>
+    </step>
+    <step>
+        <p>接下来我们执行 <code>atlas migrate diff</code> 命令，生成初始版本的 SQL 迁移脚本。</p>
+        <p>这个命令要求必须要指定一个 “name” 参数，作用就类似 git 中的 commit message，由于是第一个初始版本，我们就起名为 “init”</p>
+        <p>完整命令如下：</p>
+        <code-block lang="shell">
+            atlas migrate diff init --env order_prod
+        </code-block>
+        <p>接下来检查一下 app/order/sql/migrations 目录，看下有什么变化。</p>
+        <code-block lang="Shell"><![CDATA[
+            ➜  hello-zero git:(master) ✗ cd app/order/sql/migrations
+            ➜  migrations git:(master) ✗ tree
+            .
+            ├── 20260812124610_init.sql
+            └── atlas.sum
+            
+            1 directory, 2 files
+            ➜  migrations git:(master) ✗ head -v 20260812124610_init.sql atlas.sum              
+            ==> 20260812124610_init.sql <==
+            -- Create "order_items" table
+            CREATE TABLE `order_items` (
+            `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT "详情ID",
+            `order_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "订单ID",
+            `product_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "商品ID",
+            `quantity` int unsigned NOT NULL DEFAULT 0 COMMENT "商品数量",
+            PRIMARY KEY (`id`),
+            INDEX `idx_order_id` (`order_id`),
+            INDEX `idx_product_id` (`product_id`)
+            ) CHARSET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT "订单详情表";
+            
+            ==> atlas.sum <==
+            h1:8Tvf8Ew9dndb8OE8KFnpUkLzvrFRNqfpjpRsmFrMIXM=
+            20260812124610_init.sql h1:r5lPGbbBrNiHjYLpiWNtzkBCCXSQa1Xc094YvIftFWg=
+        ]]>
+</code-block>
+        <p>可以看到生成了两个文件:</p>
+        <p>其中 <code>20260812124610_init.sql</code> 就是初始版本的迁移脚本。它包含了截至现在 app/order/sql/schema 目录下的所有建表语句。</p>
+        <p>而另一个 <code>atlas.sum</code> 是一个校验和文件，他的作用是防止人为修改 migrations 目录下的内容。</p>
+    </step>
+    <step>
+        <p>在应用 schema migration 前，建议通过 <code>atlas migrate lint</code> 命令先做一步检查，看下有没有破环性变更或者数据丢失什么的。</p>
+        <p>完整命令与执行输出如下：</p>
+        <code-block lang="Shell"><![CDATA[
+            ➜  hello-zero git:(master) ✗ atlas migrate lint --env order_prod --latest 1
+            Analyzing changes until version 20260812124610 (1 migration in total):
+            
+            -- analyzing version 20260812124610
+            -- no diagnostics found
+            -- ok (169.062613ms)
+            
+              -------------------------
+            -- 559.787789ms
+            -- 1 version ok
+            -- 2 schema changes
+            
+            What's next:
+            Try Atlas Copilot to suggest custom linting rules for your schema → atlas copilot --env order_prod 'Suggest custom linting rules for my schema'
+            Learn more: https://atlasgo.io/lint/rules
+        ]]>
+</code-block>
+    <p>可以看到没有什么异常，下一步可以直接应用 schema migration 了</p>
+    </step>
+    <step>
+    <p>执行 <code>atlas migrate apply</code> 命令，将 schema migration 应用到生产环境</p>
+    <p>完整命令与执行输出如下：</p>
+    <code-block lang="Shell"><![CDATA[
+        ➜  hello-zero git:(master) ✗ atlas migrate status --env order_prod
+        Migration Status: PENDING
+          -- Current Version: No migration applied yet
+          -- Next Version:    20260812124610
+          -- Executed Files:  0
+          -- Pending Files:   1
+        ➜  hello-zero git:(master) ✗ atlas migrate apply --env order_prod 
+        Migrating to version 20260812124610 (1 migrations in total):
+        
+        -- migrating version 20260812124610
+        -> CREATE TABLE `order_items` (
+        `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT "详情ID",
+        `order_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "订单ID",
+        `product_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "商品ID",
+        `quantity` int unsigned NOT NULL DEFAULT 0 COMMENT "商品数量",
+        PRIMARY KEY (`id`),
+        INDEX `idx_order_id` (`order_id`),
+        INDEX `idx_product_id` (`product_id`)
+        ) CHARSET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT "订单详情表";
+        -> CREATE TABLE `orders` (
+        `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT "订单ID",
+        `user_id` bigint unsigned NOT NULL DEFAULT 0 COMMENT "用户ID",
+        `order_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "订单金额",
+        `paid_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT "支付金额",
+        `pay_time` datetime NULL COMMENT "支付时间",
+        PRIMARY KEY (`id`),
+        INDEX `idx_user_id` (`user_id`)
+        ) CHARSET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT "订单表";
+        -- ok (116.676702ms)
+        
+          -------------------------
+        -- 174.83487ms
+        -- 1 migration
+        -- 2 sql statements
+        ➜  hello-zero git:(master) ✗ atlas migrate status --env order_prod
+        Migration Status: OK
+        -- Current Version: 20260812124610
+        -- Next Version:    Already at latest version
+        -- Executed Files:  1
+        -- Pending Files:   0
+    ]]>
+</code-block>
+    <p>我们在 <code>atlas migrate apply</code> 命令执行前后，分别执行了一次 <code>atlas migrate status</code> 命令。</p>
+    <p>它可以查看当前目标库当前处于哪个版本，并且下一个要执行的版本是哪个。</p>
+    <p>根据上述命令的执行输出来看，schema migration 已经成功，接下来看看数据库有什么变化：</p>
+    <code-block lang="sql"><![CDATA[
+        mysql> use wsl_prod
+        Reading table information for completion of table and column names
+        You can turn off this feature to get a quicker startup with -A
+        
+        Database changed
+        mysql> show tables;
+        +------------------------+
+        | Tables_in_wsl_prod     |
+        +------------------------+
+        | atlas_schema_revisions |
+        | order_items            |
+        | orders                 |
+        +------------------------+
+        3 rows in set (0.02 sec)
+        
+        mysql> desc atlas_schema_revisions;
+        +------------------+-----------------+------+-----+---------+-------+
+        | Field            | Type            | Null | Key | Default | Extra |
+        +------------------+-----------------+------+-----+---------+-------+
+        | version          | varchar(255)    | NO   | PRI | NULL    |       |
+        | description      | varchar(255)    | NO   |     | NULL    |       |
+        | type             | bigint unsigned | NO   |     | 2       |       |
+        | applied          | bigint          | NO   |     | 0       |       |
+        | total            | bigint          | NO   |     | 0       |       |
+        | executed_at      | timestamp       | NO   |     | NULL    |       |
+        | execution_time   | bigint          | NO   |     | NULL    |       |
+        | error            | longtext        | YES  |     | NULL    |       |
+        | error_stmt       | longtext        | YES  |     | NULL    |       |
+        | hash             | varchar(255)    | NO   |     | NULL    |       |
+        | partial_hashes   | json            | YES  |     | NULL    |       |
+        | operator_version | varchar(255)    | NO   |     | NULL    |       |
+        +------------------+-----------------+------+-----+---------+-------+
+        12 rows in set (0.02 sec)
+        
+        mysql> select * from atlas_schema_revisions;
+        +----------------+-------------+------+---------+-------+---------------------+----------------+-------+------------+----------------------------------------------+----------------+------------------+
+        | version        | description | type | applied | total | executed_at         | execution_time | error | error_stmt | hash                                         | partial_hashes | operator_version |
+        +----------------+-------------+------+---------+-------+---------------------+----------------+-------+------------+----------------------------------------------+----------------+------------------+
+        | 20260812124610 | init        |    2 |       2 |     2 | 2026-08-12 13:53:22 |        7993050 |       |            | r5lPGbbBrNiHjYLpiWNtzkBCCXSQa1Xc094YvIftFWg= | null           | Atlas CLI v1.3.0 |
+        +----------------+-------------+------+---------+-------+---------------------+----------------+-------+------------+----------------------------------------------+----------------+------------------+
+        1 row in set (0.00 sec)
+    ]]>
+</code-block>
+    <p>可以看到 <code>orders</code> 和 <code>order_items</code> 两张表已经成功创建。</p>
+    <p>此外还多创建了一张 <code>atlas_schema_revisions</code> 表，里面存放了目标库当前 schema migrations 的版本进度。</p>
+    </step>
+</procedure>
+
+这就是 Atlas 设计的精妙之处：
+
+在 diff 阶段，它对比的是 app/order/sql/migrations 目录下现存版本 schema 与 app/order/sql/schema 目录下期望版本 schema 之差异。
+
+当出现差异时，在 app/order/sql/migrations 目录下生成新版本的迁移脚本。整个 diff 阶段只在本地做计算，不连接生产库。
+
+在 apply 阶段，会将每个版本的迁移进度记录在目标数据库中，由目标库自行跟踪当前是哪个版本，且接下来需要执行哪些新版本。
+
+所以 Atlas 天然适合一套代码对接多个数据库实例的场景。比如某些中台类型的项目。此外 diff 阶段不需要连接目标库，也完美符合企业中本地环境不能直连生产库的安全标准。
+
+在实际的企业开发场景中，我们只需在本地环境配置好 diff 阶段，并将 apply 阶段配置到对应的 CI/CD 系统中，就可以实现数据库 schema migrations 的自动化。
+
+## One more thing：使用 mise task 管理 Atlas {id="atlas_6"}
+因为 Atlas 命令和参数较多，不便记忆，因此我们将 Atlas 命令封装在 mise task 中，它就像现代化版本的 Makefile，非常好用。
+
+下面是我 mise.toml 文件中的 mise task 配置，可供参考：
+```toml
+[tasks."db:diff"]
+description = "【测试环境声明式工作流】比较 SQL 声明与目标库差异；【生产环境版本化工作流】比较 SQL 声明与现有迁移，生成新的版本迁移文件；"
+usage = '''
+arg "<service>" help="目标服务" {
+  choices "order"
+}
+arg "<environment>" help="目标部署环境" {
+  choices "dev" "pro"
+  default "dev"
+}
+flag "--msg <msg>" help="需要提交的 diff 消息" default="auto_migration"
+'''
+run = """
+set -x
+# 执行 Atlas 差异比较
+case ${usage_environment?} in
+  dev) atlas schema apply --env ${usage_service?}_local --dry-run ;;
+  pro) atlas migrate diff ${usage_msg?} --env ${usage_service?}_prod ;;
+esac
+set +x
+"""
+
+[tasks."db:apply"]
+description = "【测试环境声明式工作流】直接将 SQL 声明同步到数据库；【生产环境版本化工作流】按顺序执行未应用的迁移脚本。"
+usage = '''
+arg "<service>" help="目标服务" {
+  choices "order"
+}
+arg "<environment>" help="目标部署环境" {
+  choices "dev" "pro"
+  default "dev"
+}
+'''
+run = """
+set -x
+# 执行 Atlas 同步
+case ${usage_environment?} in
+  dev) atlas schema apply --env ${usage_service?}_local ;;
+  pro) atlas migrate apply --env ${usage_service?}_prod ;;
+esac
+set +x
+"""
+
+[tasks."db:status"]
+description = "【生产环境版本化工作流】查看迁移执行状态与版本表"
+usage = '''
+arg "<service>" help="目标服务" {
+  choices "order"
+}
+arg "<environment>" help="目标部署环境" {
+  choices "pro"
+  default "pro"
+}
+'''
+run = """
+set -x
+# 查看 Atlas 同步状态
+case ${usage_environment?} in
+pro) atlas migrate status --env ${usage_service?}_prod ;;
+esac
+set +x
+"""
+
+[tasks."db:lint"]
+description = "【生产环境版本化工作流】审查最近n个版本是否有破环性变更"
+usage = '''
+arg "<service>" help="目标服务" {
+  choices "order"
+}
+arg "<environment>" help="目标部署环境" {
+  choices "pro"
+  default "pro"
+}
+flag "--n <n>" help="最近n个迁移文件" default="1"
+'''
+run = """
+set -x
+# 审查 Atlas 迁移版本
+case ${usage_environment?} in
+pro) atlas migrate lint --env ${usage_service?}_prod --latest ${usage_n?} ;;
+esac
+set +x
+"""
+```
+
+由于篇幅有限，对 Atlas 的分享到这里就结束了。本文只是对 Atlas 最基本的功能做了一些粗略的介绍，有错误的地方欢迎指正。
+
+对于剩下的一些其他功能，例如如何版本化管理非空白的目标库、如何配置 CI/CD 系统等等，请移步 Atlas 官网做深入了解。感谢阅读。
