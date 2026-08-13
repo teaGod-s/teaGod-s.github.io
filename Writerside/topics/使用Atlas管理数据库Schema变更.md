@@ -4,26 +4,26 @@
 
 后端开发时经常会涉及到表结构变更，表结构变更是重要且高危的操作，所以必须要有审核过程。
 
-一般后端的上线流程是这样，会先通过 SQL 审计平台提交 SQL 工单，经过层层审批将表结构变更同步到生产环境后，再上线业务代码。
+一般后端的上线流程是这样，会先通过 SQL 审计平台提交 SQL 工单，经过层层审批后，将表结构变更同步到生产环境，然后再上线业务代码。
 比如 [Yearning](https://github.com/cookieY/Yearning)、[Archery](https://github.com/hhyo/Archery) 这些平台，就支持 SQL 工单审核。
 
-但是当你的业务库越来越庞大，每次上线都要提交几十上百个工单的时候，不管是对开发者还是对审批者来说，都是灾难。
+但是当你的数据库实例越来越多，每次上线都要提交几十上百个工单的时候，不管是对开发者还是对审批者来说，都是灾难一样的体验。
 
-更不用说当你忘记提交某个工单，却直接把代码上线了。那等来的将是上线事故，滋味可是相当不好受(￣_￣|||)
+更不用说当你忘记提交某个工单，却直接把代码上线了。。。那等来的将是上线事故，滋味可是相当不好受(￣_￣|||)
 
 
 ## 数据库 Migration 工具 Atlas 介绍 {id="atlas_2"}
 
 数据库 Migration（迁移）是什么？ 数据库 Migration（迁移） 是指对数据库 Schema（结构）进行版本化管理和增量变更的过程。简单来说，就是像管理代码一样管理数据库结构的变化。
 
-针对上面介绍的数据库 Schema 变更管理痛点，我们是不是可以将期望的表结构与业务代码放在一起，用 Git 一起管理，然后用一种数据库 Migration 工具，在每次代码上线时，将 Git 里保存的表结构，自动同步到生产环境上呢？
+针对上面介绍的数据库 Schema 变更管理痛点，我们可以将期望态的表结构与业务代码放在一起，用 Git 来管理。然后用一种数据库 Migration 工具，在每次上线时，将 Git 里保存的表结构，自动同步到生产环境上。
 
-可以的，今天介绍的 [Altas](https://github.com/ariga/atlas)，就是这样的工具。
+今天介绍的 [Altas](https://github.com/ariga/atlas)，就是这样的工具。
 
 Atlas 同时支持[**声明式工作流**](https://atlasgo.io/declarative/apply)与[**版本化工作流**](https://atlasgo.io/versioned/intro)两种流程，是一个非常强大的工具。我们接下来依次介绍。
 
 ## 安装 Atlas {id="atlas_3"}
-我推荐使用 [mise](https://mise.en.dev/)来安装并管理 Atlas ，因为它支持 Atlas 的多版本管理。而且通过 mise task 对 Atlas 命令进行自定义封装后，可以极大简化使用复杂度。
+我推荐使用 [mise](https://mise.en.dev/)来安装并管理 Atlas ，因为它支持 Atlas 的多版本管理。而且通过 mise task 对 Atlas 命令进行自定义封装后，可以极大简化 Atlas 使用复杂度。
 
 有关 mise 的安装使用可以参考 <a href="Windows系统的Golang多版本管理.md" as="button">我的这篇博客</a>
 
@@ -36,13 +36,13 @@ atlas = "1.3.0"
 
 ## Atlas 声明式工作流 {id="atlas_4"}
 
-声明式工作流讲究的是所见即所得。 在代码库中定义好建表语句后，后面每次字段变更时不需要再单独写 `ALTER` 语句了，直接改建表语句就行。
+声明式工作流，讲究的是所见即所得。在代码库中定义好表结构 schema，即建表语句，之后每次字段变更时不需要再单独写 `ALTER` 语句了，直接表结构 schema 就行。
 
-Atlas 会将你声明好的最新版建表语句直接同步到目标数据库实例上。
+Atlas 会将你声明好的最新版表结构 schema 直接同步到目标数据库实例上。
 
 这种声明式工作流思想在 K8s 中也有用到。比如用 YAML 文件描述好应用的期望状态，K8s 会负责将应用按照你声明好的 YAML 文件部署到集群上，而你不需要关注具体过程。
 
-那么接下来介绍一下声明式工作流怎么使用。
+接下来介绍一下声明式工作流怎么使用。
 
 首先来看一下我的代码结构，我的项目采用的是 go-zero 框架。
 
@@ -99,7 +99,7 @@ Atlas 会将你声明好的最新版建表语句直接同步到目标数据库�
 
 可以看到 order 服务的所有建表语句都放在 `app/order/sql/schema` 目录下，目前只有两张表。
 
-那么如何使用 Atlas 将 `orders.sql` 和 `order_item.sql` 同步到目标库中呢？很简单，一条命令就行
+那么如何让 Atlas 将 `orders.sql` 和 `order_item.sql` 同步到目标库中呢？很简单，一条命令就行
 
 ```shell
 atlas schema apply \                          
@@ -110,16 +110,16 @@ atlas schema apply \
 
 其中每个参数的作用如下：
 - 参数 url 为目标数据库地址
-- 参数 to 为存放建表语句即 schema 声明的本地位置
+- 参数 to 为存放建表语句即表结构 schema 声明的本地位置
 - 参数 dev-url 为一个与业务无关的、临时的、隔离的数据库实例，Atlas 将其用作沙箱来模拟真实环境。
 
 可以看到 dev-url 参数是 Atlas 实现数据库自动化 Migration 的关键。
 
-在本条命令执行后，Atlas 会干4件事
+在本条命令执行后，Atlas 会干4件事：
 <procedure title="atlas schema apply 执行原理" id="atlas_schema_apply_theory">
-    <step>Atlas 会调用 docker 拉起一个临时数据库实例，然后将本地定义好的 schema 即建表语句先应用到 dev-url 所在的临时库中。</step>
-    <step>随后 Atlas 会拿 dev-url 所在实例的 schema 与 url 所在目标库实例的 schema 做对比计算。计算出来的差异部分 Atlas 会生成 SQL 工单来供我们审批， 你可以选择通过或者是拒绝。</step>
-    <step>如果审批通过，Atlas 会自动将差异 SQL 放在目标库实例上执行，最终达成的效果是目标库的 schema 与本地代码仓库声明的 schema 保持一致。 </step>
+    <step>因为我们在 dev-url 中指定的是 docker，所以Atlas 会调用 docker 拉起一个临时数据库实例，然后将本地定义好的表结构 schema 应用到 dev-url 所在的临时库中。</step>
+    <step>随后 Atlas 会拿 dev-url 所在实例的 schema 与 url 所在目标库实例的 schema 做对比计算。计算出来的差异部分， Atlas 会将其生成 SQL 工单来供我们审批， 你可以选择通过或者拒绝。</step>
+    <step>如果审批通过，Atlas 会自动将差异部分的 SQL 脚本放在目标库实例上执行，最终达成的效果是目标库的 schema 与本地代码仓库声明的 schema 保持一致。 </step>
     <step>命令执行完后重置 dev-url 所在实例的 schema。由于在本例中使用的是 docker，所以临时拉起的 docker 容器会自动销毁。</step>
 </procedure>
 
@@ -180,7 +180,7 @@ atlas schema apply \
                 }
         </code-block>
         <p>我们在这个 <code>atlas.hcl</code> 文件里，把刚才的 Atlas 命令参数给持久化了，并且跟项目代码一起用 Git 管理。</p>
-        <p>它就像 docker compose 中的 <code>docker-compose.yml</code> 文件一样，会简化我们的基础命令，</p>
+        <p>它就像 docker compose 中的 <code>docker-compose.yml</code> 文件一样，会帮助我们简化基础命令的使用，同时将我们的操作固化下来，方便重复执行与记忆。</p>
     </step>
     <step>
         <p>接下来我们执行</p>
@@ -257,12 +257,12 @@ atlas schema apply \
 </code-block>
     </step>
     <p>整个声明式工作流就跑通了。</p>
-    <warning>建议实际应用中一定要加上第6步的约束，这项才能避免 <code>DROP</code> 误操作带来的生产事故！！！</warning>
+    <warning>建议实际应用中一定要加上第6步的约束，这项才能避免 <code>DROP</code> 执行而导致的生产事故！！！</warning>
 </procedure>
 
 另外由于我使用的是 go-zero 框架，model 层代码也是由 sql 文件生成的。
 
-所以我每次想改表结构时，只需改 sql 文件这一处约束就行，model 层代码与目标库 schema 全都靠自动化工具自己搞定，完全不用手写 `ALTER` 语句，怎么样是不是很方便？
+所以每次表结构变更时，只需改 sql 文件这一处约束就行，model 层代码与目标库 schema 全都靠自动化工具自己搞定，完全不用手写 `ALTER` 语句，怎么样是不是很方便？
 
 ## Atlas 版本化工作流 {id="atlas_5"}
 上面讲的声明式工作流，其实只适合本地开发环境或者测试环境。因为它追求速度，允许灵活试错。
@@ -296,7 +296,7 @@ atlas schema apply \
     </step>
     <step>
         <p>接下来我们执行 <code>atlas migrate diff</code> 命令，生成初始版本的 SQL 迁移脚本。</p>
-        <p>这个命令要求必须要指定一个 “name” 参数，作用就类似 git 中的 commit message，由于是第一个初始版本，我们就起名为 “init”</p>
+        <p>这个命令要求必须要指定一个 “name” 参数，作用就类似 git 中的 commit message，由于是第一个初始版本，我们起名为 “init” 就行。</p>
         <p>完整命令如下：</p>
         <code-block lang="shell">
             atlas migrate diff init --env order_prod
@@ -329,11 +329,11 @@ atlas schema apply \
         ]]>
 </code-block>
         <p>可以看到生成了两个文件:</p>
-        <p>其中 <code>20260812124610_init.sql</code> 就是初始版本的迁移脚本。它包含了截至现在 app/order/sql/schema 目录下的所有建表语句。</p>
+        <p>其中 <code>20260812124610_init.sql</code> 就是初始版本的迁移脚本。它包含了截至到现在 <code>app/order/sql/schema</code> 目录下的所有建表语句。</p>
         <p>而另一个 <code>atlas.sum</code> 是一个校验和文件，他的作用是防止人为修改 migrations 目录下的内容。</p>
     </step>
     <step>
-        <p>在应用 schema migration 前，建议通过 <code>atlas migrate lint</code> 命令先做一步检查，看下有没有破环性变更或者数据丢失什么的。</p>
+        <p>在应用 schema migration 之前，建议通过 <code>atlas migrate lint</code> 命令先做一步检查，看下有没有破环性变更或者数据丢失什么的。</p>
         <p>完整命令与执行输出如下：</p>
         <code-block lang="Shell"><![CDATA[
             ➜  hello-zero git:(master) ✗ atlas migrate lint --env order_prod --latest 1
@@ -402,7 +402,7 @@ atlas schema apply \
     ]]>
 </code-block>
     <p>我们在 <code>atlas migrate apply</code> 命令执行前后，分别执行了一次 <code>atlas migrate status</code> 命令。</p>
-    <p>它可以查看当前目标库当前处于哪个版本，并且下一个要执行的版本是哪个。</p>
+    <p>它可以查看目标库当前处于哪个版本，并且下一个要执行的是哪个版本。</p>
     <p>根据上述命令的执行输出来看，schema migration 已经成功，接下来看看数据库有什么变化：</p>
     <code-block lang="sql"><![CDATA[
         mysql> use wsl_prod
@@ -449,26 +449,26 @@ atlas schema apply \
     ]]>
 </code-block>
     <p>可以看到 <code>orders</code> 和 <code>order_items</code> 两张表已经成功创建。</p>
-    <p>此外还多创建了一张 <code>atlas_schema_revisions</code> 表，里面存放了目标库当前 schema migrations 的版本进度。</p>
+    <p>此外还多创建了一张 <code>atlas_schema_revisions</code> 表，里面存放了目标库当前 schema migration 的版本进度。</p>
     </step>
 </procedure>
 
 这就是 Atlas 设计的精妙之处：
 
-在 diff 阶段，它对比的是 app/order/sql/migrations 目录下现存版本 schema 与 app/order/sql/schema 目录下期望版本 schema 之差异。
+在 diff 阶段，它对比的是 `app/order/sql/migrations` 目录下现存各版本叠加后的 schema 与 `app/order/sql/schema` 目录下期望版本 schema 之差异。
 
-当出现差异时，在 app/order/sql/migrations 目录下生成新版本的迁移脚本。整个 diff 阶段只在本地做计算，不连接生产库。
+当出现差异时，在 `app/order/sql/migrations` 目录下生成新版本的迁移脚本。整个 diff 阶段只在本地做计算，不连接生产库。
 
-在 apply 阶段，会将每个版本的迁移进度记录在目标数据库中，由目标库自行跟踪当前是哪个版本，且接下来需要执行哪些新版本。
+在 apply 阶段，会将每个版本的迁移进度记录在目标数据库中，由目标库自行跟踪当前是哪个版本，且下一步需要迁移哪些新版本。
 
 所以 Atlas 天然适合一套代码对接多个数据库实例的场景。比如某些中台类型的项目。此外 diff 阶段不需要连接目标库，也完美符合企业中本地环境不能直连生产库的安全标准。
 
-在实际的企业开发场景中，我们只需在本地环境配置好 diff 阶段，并将 apply 阶段配置到对应的 CI/CD 系统中，就可以实现数据库 schema migrations 的自动化。
+在实际的企业开发场景中，我们只需在本地环境配置好 diff 阶段，并将 apply 阶段配置到对应的 CI/CD 系统中，就可以实现数据库 schema migration 的自动化。
 
 ## One more thing：使用 mise task 管理 Atlas {id="atlas_6"}
-因为 Atlas 命令和参数较多，不便记忆，因此我们将 Atlas 命令封装在 mise task 中，它就像现代化版本的 Makefile，非常好用。
+因为 Atlas 命令和参数较多，不便记忆，再加上当我们为各个微服务分库后，导致每个微服务都需要个性化定制命令。因此我们将 Atlas 命令封装在 mise task 中，它就像现代化版本的 Makefile，非常好用。
 
-下面是我 mise.toml 文件中的 mise task 配置，可供参考：
+下面是我的 mise.toml 文件中的 mise task 配置，可供参考：
 ```toml
 [tasks."db:diff"]
 description = "【测试环境声明式工作流】比较 SQL 声明与目标库差异；【生产环境版本化工作流】比较 SQL 声明与现有迁移，生成新的版本迁移文件；"
@@ -555,6 +555,8 @@ set +x
 """
 ```
 
-由于篇幅有限，对 Atlas 的分享到这里就结束了。本文只是对 Atlas 最基本的功能做了一些粗略的介绍，有错误的地方欢迎指正。
+对于其他的一些类似如何版本化管理非空白的目标库、如何配置 CI/CD 系统等 Atlas 进阶功能，请移步 Atlas 官网做深入了解。
 
-对于剩下的一些其他功能，例如如何版本化管理非空白的目标库、如何配置 CI/CD 系统等等，请移步 Atlas 官网做深入了解。感谢阅读。
+由于篇幅有限，对 Atlas 的分享到这里就结束了。本文只是对 Atlas 最基本的功能做了一些简单的介绍，如有错误，欢迎指正。
+
+感谢阅读。
