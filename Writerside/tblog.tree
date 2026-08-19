@@ -8,6 +8,9 @@
 
     <toc-element topic="About-Me.md"/>
     <toc-element topic="技术文章.md">
+        <toc-element topic="MQ.md">
+            <toc-element topic="Kafka从系统架构到生产消费的完整图谱.md"/>
+        </toc-element>
         <toc-element topic="工具推荐.md">
         </toc-element>
         <toc-element topic="SQL.md">
