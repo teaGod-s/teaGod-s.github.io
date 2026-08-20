@@ -1,0 +1,28 @@
+# --------------------------------------------------------
+# 1. 跨平台换行符自动转换 (核心)
+# --------------------------------------------------------
+# 默认所有文本文件在提交时自动转为 LF，Windows 检出时转为 CRLF
+* text=auto
+
+# 强制以下关键源码文件和配置文件在任何系统上都保持 LF 换行符
+# 避免 goctl 生成的代码或 Shell 脚本在 Docker/Linux 环境中运行时因 CRLF 报错
+*.go text eol=lf
+*.api text eol=lf
+*.proto text eol=lf
+*.sh text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.sql text eol=lf
+
+# --------------------------------------------------------
+# 2. 区分二进制与资源文件 (防损坏)
+# --------------------------------------------------------
+# 显式声明二进制文件和图片，防止 Git 误当成文本尝试转换换行符导致文件损坏
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
