@@ -75,5 +75,44 @@ flowchart LR
     classDef detail fill:#f8fafc,color:#0f172a,stroke:#94a3b8,stroke-width:1px;
 ```
 
-#### Q & A
-未完待续
+## Q & A {id="kafka_3"}
+
+<deflist collapsible="true">
+    <def title="Broker、Topic、Partition、Leader、Follower 等概念之间的关系是怎样的？" default-state="inherited">
+        <img src="kafka_image1.png" alt="Kafka各组件关系图" border-effect="rounded"/>
+    </def>
+    <def title="Topic 的分区结构与写入过程是怎样的？" default-state="inherited">
+        <img src="kafka_image2.png" alt="Topic的分区结构与写入过程" border-effect="rounded"/>
+    </def>
+    <def title="顺序IO跟随机IO在不同存储介质上的性能是怎样的？" default-state="inherited">
+        <img src="kafka_image3.png" alt="顺序IO跟随机IO在不同存储介质上的性能对比" border-effect="rounded"/>
+    </def>
+    <def title="Topic 在磁盘上的目录文件结构是怎样的？" default-state="inherited">
+        <p>下图即名为 “click” 的 Topic 在磁盘上的目录结构，它有3个 Partition。</p>
+        <img src="kafka_image4.png" alt="Topic日志的目录文件结构" border-effect="line"/>
+        <p>一个 Partition 在磁盘上对应一个文件夹，里面通常包含多组文件，每组被称为一个日志段（LogSegment）。</p>
+        <p>一个日志段由多个文件组成：</p>
+        <p><format style=",bold,italic" color="Pink"><code>.log</code> 日志文件，是实际存储消息体的文件；</format></p>
+        <p><format style=",bold,italic" color="LightBlue"><code>.index</code> 稀疏索引文件，建立了 “消息逻辑偏移量(Offset) → 消息物理磁盘位置” 的映射，用于快速定位消息；</format></p>
+        <p><format style=",bold,italic" color="LightSeaGreen"><code>.timeindex</code> 时间戳索引文件，建立了 “消息时间戳 → 消息逻辑偏移量(offset)” 的映射，方便按时间范围来查找消息。</format></p>
+        <tip>
+            段文件会根据段内最小 Offset 命名
+        </tip>
+    </def>
+    <def title="如何根据 Offset 在日志文件中查找消息？" default-state="inherited">
+        <p>以下图为例，查找 Offset 为 7 的 Message</p>
+        <img src="kafka_image5.png" alt="根据Offset在日志文件中查找消息" border-effect="rounded"/>
+        <procedure title="查找步骤" id="kafka-search-message-by-offset">
+            <step>
+                <p>因为 LogSegment 根据内部最小的 Offset 命名。</p>
+                <p>所以首先使用二分查找，确定 Message 在哪个 LogSegment 中。</p>
+            </step>
+            <step>
+                <p>打开 <code>.index</code> 稀疏索引文件，使用二分查找，找到最接近 Offset 7 且小于等于 Offset 7 的那个 Offset，本例为 Offset 6。</p>
+            </step>
+            <step>
+                <p>上一步已经知道 Offset 6 对应消息的物理位置为 9807，接下来打开 <code>.log</code> 文件，从 9807 的位置开始，顺序扫描，直到找到 Offset 7 对应的消息。本例中即物理位置 1108 这条消息。</p>
+            </step>
+        </procedure>
+    </def>
+</deflist>
