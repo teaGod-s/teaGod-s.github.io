@@ -115,4 +115,61 @@ flowchart LR
             </step>
         </procedure>
     </def>
+    <def title="Broker 中消息写入与持久化流程是怎样的？" default-state="inherited">
+        <img src="kafka_image6.png" alt="Broker中消息写入与持久化流程" border-effect="rounded"/>
+    </def>
+    <def title="Kafka 为什么要把数据直接写到硬盘，而不是写到内存再 flush？" default-state="inherited">
+        <list type="decimal">
+            <li>
+                <p>现代操作系统主动将所有空闲内存用作 disk caching, 所有对磁盘的读写操作都会通过这个统一的 cache。如果不使用直接I/O，该功能不能轻易关闭。</p>
+                <p>因此即使进程维护了 in-process cache，该数据也可能会被复制到操作系统的 Page Cache 中，事实上所有内容都被存储了两份。</p>
+            </li>
+            <li>
+                <p>Kafka 是建立在 jvm 上面的，jvm 有两个特点:</p>
+                <list>
+                    <li>对象的内存开销非常高，通常是所存储的数据的两倍(甚至更多) </li>
+                    <li>随着堆中数据的增加，Java 的垃圾回收变得越来越复杂和缓慢 </li>
+                </list>
+            </li>
+            <li>简化代码，因为所有保持 cache 和文件系统之间一致性的逻辑现在都被放到了 OS 中，这样做比一次性的进程内缓存更准确、更高效。</li>
+        </list>
+    </def>
+    <def title="Page Cache 的数据什么时候回写硬盘？" default-state="inherited">
+        <p>Linux 内核里负责回写脏页的线程称为 flusher 线程。</p>
+        <p>flusher 线程运行时机：</p>
+        <list>
+            <li>空闲内存低于某个阈值</li>
+            <li>脏页停留时间高于某个阈值</li>
+            <li>用户进程主动调用sync()或fsync()</li>
+        </list>
+        <p>进一步得出结论: 只要数据写进了 Page Cache，即使 Kafka 进程挂掉，数据也不会丢失</p>
+    </def>
+    <def title="Page Cache 什么时候读取硬盘？" default-state="inherited">
+        <p>当 Consumer 要消费的消息不在 Page Cache 里，才会去磁盘读取。</p>
+        <p>并且会顺便预读出一些相邻的块放入 Page Cache，以方便下一次读取。</p>
+        <p>进一步得出结论：如果 Producer 的生产速率与 Consumer 的消费速率相差不大，那么就能几乎只靠对 Page Cache 的读写完成整个生产-消费过程，磁盘访问非常少。这个结论俗称为“读写空中接力”。</p>
+    </def>
+    <def title="Sendfile 零拷贝相比传统网络IO有何优势？" default-state="inherited">
+        <procedure title="传统网络IO流程" id="kafka-classic-network-io">
+            <img src="kafka_image7.png" alt="传统网络IO流程" border-effect="rounded"/>
+            <step>
+                <p>操作系统从磁盘读取数据到内核空间的 Page Cache。</p>
+            </step>
+            <step>
+                <p>应用程序读取内核空间的数据到用户空间的缓冲区。</p>
+            </step>
+            <step>
+                <p>应用程序将数据(用户空间的缓冲区)写回内核空间到套接字缓冲区(内核空间)。</p>
+            </step>
+            <step>
+                <p>操作系统将数据从套接字缓冲区(内核空间)复制到通过网络发送的 NIC 缓冲区。</p>
+            </step>
+        </procedure>
+        <procedure title="Sendfile 零拷贝" id="kafka-send-file">
+            <img src="kafka_image8.png" alt="传统网络IO流程" border-effect="rounded"/>
+            <step>
+                <p>数据直接从 Page Cache 发送到网络，将IO操作全部交给操作系统，减少数据复制。</p>
+            </step>
+        </procedure>
+    </def>
 </deflist>

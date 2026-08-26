@@ -13,7 +13,7 @@
     <p>我选择的方式是手工安装。</p>
     <step>
         <p>去官方的 <a href="https://github.com/jdx/mise/releases">Github</a> release 页，找到最新版的Windows安装包。</p>
-        <img src="mise_github_release.png" alt="选择zip安装包" border-effect="line"/>
+        <img src="mise_github_release.png" alt="选择zip安装包" border-effect="rounded"/>
     </step>
     <step>
         <p>下载 .zip 安装包后解压，我解压到了 D 盘。</p>
@@ -52,7 +52,7 @@
             (&mise activate pwsh) | Out-String | Invoke-Expression
         ]]>
         </code-block>
-        <img src="mise_power_shell_env.png" alt="修改mise环境变量" border-effect="line"/>
+        <img src="mise_power_shell_env.png" alt="修改mise环境变量" border-effect="rounded"/>
         <tip>
             环境变量 <code>MISE_DATA_DIR</code> 即代表 golang 下载目录
         </tip>
@@ -64,7 +64,7 @@
 <procedure title="下载步骤" id="install-golang">
     <step>
         <p>首先查看一下可下载的 golang 版本有哪些：</p>
-        <img src="mise_v.png" alt="查看可用 golang 版本" border-effect="line"/>
+        <img src="mise_v.png" alt="查看可用 golang 版本" border-effect="rounded"/>
     </step>
     <step>
         <p>下载 golang 1.26.3 版本，执行命令 <code>mise use -g go@1.26.3</code></p>
@@ -72,7 +72,7 @@
     </step>
     <step>
         <p>可以看到 golang 1.26.3 已经可以使用了，但是默认的 <code>GOPATH</code> 指向的还是 C 盘。最后一步修改 <code>GOPATH</code> 指向路径，将 <code>E:\GOPATH</code> 添加到用户环境变量</p>
-        <img src="mise_gopath.png" alt="下载 golang" border-effect="line"/>
+        <img src="mise_gopath.png" alt="下载 golang" border-effect="rounded"/>
     </step>
 </procedure>
 
