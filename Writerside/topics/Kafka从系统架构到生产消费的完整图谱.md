@@ -166,10 +166,97 @@ flowchart LR
             </step>
         </procedure>
         <procedure title="Sendfile 零拷贝" id="kafka-send-file">
-            <img src="kafka_image8.png" alt="传统网络IO流程" border-effect="rounded"/>
+            <img src="kafka_image8.png" alt="Sendfile零拷贝流程" border-effect="rounded"/>
             <step>
                 <p>数据直接从 Page Cache 发送到网络，将IO操作全部交给操作系统，减少数据复制。</p>
             </step>
         </procedure>
+    </def>
+    <def title="如何分配 Partition 和 Replica 到 Broker 上？" default-state="inherited">
+        <procedure title="分配过程" id="kafka-assign-partition-and-replica">
+            <step>将所有 Broker（假设共 n 个 Broker）和待分配的 Partition 排序。</step>
+            <step>将第 i 个 Partition 分配到第 <math>i \bmod n</math> 个 Broker 上。</step>
+            <step>将第 i 个 Partition 的第 j 个 Replica 分配到第 <math>(i + j) \bmod n</math> 个 Broker 上。</step>
+            <p>进一步得出结论：若 Replica 的数量大于 Broker 的数量，会有两个相同的 Replica 分配到同一个 Broker 上，所以 Replica 的数量应该小于等于 Broker 的数量。</p>
+        </procedure>        
+    </def>
+    <def title="Producer 生产消息的可靠性怎么保证？" default-state="inherited">
+        <img src="kafka_image9.png" alt="生产消息的可靠性保证" border-effect="rounded"/>
+        <procedure title="数据发送的可靠性机制" id="kafka-producer-data-reliability">
+            <step>Partition-Leader 收到 Producer 发送的数据。</step>
+            <step>Partition-Leader 将数据同步到 Partition-Follower。</step>
+            <step>Partition-Leader 向 Producer 返回 ACK（ACKnowledge 确认收到）信号</step>
+        </procedure>
+    </def>
+    <def title="多少个 Replica (Leader+Follower) 同步完成后发送 ACK？" default-state="inherited">
+        <img src="kafka_image10.png" alt="Replica数据同步方案选择" border-effect="rounded"/>
+        <p>Kafka 选择后者，但严格来说应该是全部 Replica 的一个同步子集，即 ISR (a set of in-sync replicas)</p>
+    </def>
+    <def title="什么是 ISR 机制？" default-state="inherited">
+        <img src="kafka_image11.png" alt="Kafka ISR 机制" border-effect="rounded"/>
+        <procedure title="ISR 概念解释" id="kafka-isr">
+            <step>ISR 是 Replicas 的一个子集。</step>
+            <step>Follower 长时间不同步，会踢出 ISR。</step>
+            <step>Leader 故障, 会从 ISR 中重新选择 Leader。</step>
+            <step>ISR 中所有 Follower 完成数据的同步之后，Leader 向 Producer 返回 ACK。</step>
+            <step>ISR 集合发生变化会在 ZooKeeper 持久化。</step>
+            <step>ISR 中的任何一个节点都有资格被选为 Leader。</step>
+        </procedure>
+    </def>
+    <def title="满足什么条件的 Replica 才会变成 ISR 的成员？" default-state="inherited">
+        <list>
+            <li>它所在的 Broker 需要能在 Zookeeper 里维护心跳。</li>
+            <li>它和 Leader 之间的数据差异不能太大，这个差异是一个可配置的 threshold。</li>
+        </list>
+        <p>满足以上条件的 Follower 被称之为 “in sync”。</p>
+    </def>
+    <def title="Producer 生产消息的可靠性有几个级别？" default-state="inherited">
+        <img src="kafka_image12.png" alt="Producer 生产消息的3个可靠性级别" border-effect="rounded"/>
+    </def>
+    <def title="Kafka 的故障恢复机制是怎样的？" default-state="inherited">
+        <img src="kafka_image13.png" alt="Kafka 的故障恢复机制" border-effect="rounded"/>
+        <list>
+            <li><format style=",bold">Follower故障：</format> 被临时踢出ISR，恢复后先截掉本地日志中高于上次HW的部分，再从HW开始同步Leader数据。</li>
+            <li><format style=",bold">Leader故障：</format> 从ISR中选新Leader，其他Follower先截掉高于HW的日志，再同步新Leader数据。</li>
+            <li><format style=",bold">全部节点故障：</format> Kafka会选第一个恢复的副本（不一定在ISR中）作为Leader。</li>
+        </list>
+    </def>
+    <def title="Producer 发送消息时的路由机制是怎样的？" default-state="inherited">
+        <img src="kafka_image14.png" alt="Producer 发送消息时的路由机制" border-effect="rounded"/>
+        <p>图为 Kafka 发送的 Message 的内部结构</p>
+        <procedure title="消息路由机制" id="kafka-message-router">
+            <step>指定了 Partition，则直接使用。</step>
+            <step>没有指定 Partition 但有 Key，将 Key 的 Hash 值与分区数取余得到 Partition 值。</step>
+            <step>既没有 Partition 也没有 Key 的情况下，第一次调用时随机生成一个整数（后面每次调用都在这个整数上自增），将这个值与可用的分区数取余，得到 Partition 值，也就是常说的 Round-Robin 轮询算法。</step>
+        </procedure>
+    </def>
+    <def title="Producer 的消息发送方式有几种？" default-state="inherited">
+        <list>
+            <li><format style=",bold">异步发送：</format> 确定目标分区后，发送到一块内存缓冲区中（发送队列）。Producer 的另一个工作线程（即 Sender 线程），负责实时地从该缓冲区中提取出准备好的消息封装到一个批次内，统一发送到对应的 Broker 中。</li>
+            <li><format style=",bold">同步发送：</format> 不分批，直接发送到 Broker，一条消息发送一次，直到收到 ACK 信号才开始发送下一条消息。</li>
+        </list>
+    </def>
+    <def title="Consumer 支持几种消费模式？" default-state="inherited">
+        <img src="kafka_image15.png" alt="Consumer 消费模式" border-effect="rounded"/>
+        <list>
+            <li><format style=",bold">队列模式（queuing）：</format> 多个 Consumer 可以同时从服务端读取消息，每个消息只被其中一个 Consumer 读到 (消息竞争)。</li>
+            <li><format style=",bold">发布-订阅模式 (publish-subscribe)：</format> 消息被广播到所有的 Consumer 中 (消息共享)。</li>
+        </list>
+        <p>Consumer Group，组内消息竞争，组间消息共享。</p>
+    </def>
+    <def title="Rebalance 触发时机是什么时候？" default-state="inherited">
+        <p>Group 中的 Consumer 分配 Partition 的过程叫 Rebalance。它的触发时机有以下几种：</p>
+        <list>
+            <li>组成员个数发生变化。</li>
+            <li>订阅的 Topic 个数发生变化。</li>
+            <li>订阅的 Topic 分区数发生变化。</li>
+        </list>
+    </def>
+    <def title="Offset 从语义上来看有几种？" default-state="inherited">
+        <img src="kafka_image16.png" alt="Offset 语义" border-effect="rounded"/>
+        <list>
+            <li><format style=",bold">Committed Offset：</format> 代表 Consumer 已经确认消费过的消息的序号，持久化保存在 Broker 的 一个特殊 Topic: __consumers_offsets 上。</li>
+            <li><format style=",bold">Current Offset：</format> Consumer 希望收到的下一条消息的序号，存在于 Consumer 客户端中(未持久化)。</li>
+        </list>
     </def>
 </deflist>
