@@ -360,4 +360,217 @@ CTE的优势有很多：
 
 所以如果你的业务还是基于老版本 MySQL 构建的，是时候考虑一下升级了。
 
+## 怎么用SQL解决快照问题？ {id="sql_5"}
+
+### 什么是快照？
+首先来简单理解一下什么是快照。我们以电商系统中常见的储值卡业务为例。
+
+假设某电商平台支持储值卡。 用户可以购买一张储值卡，储值卡具有：`激活时间、失效时间、面值`等属性。
+
+当用户使用储值卡购物时，会产生消费流水。
+
+例如：
+
+| 储值卡 | 激活时间  | 失效时间   | 面值 |
+|--------|-----------|------------|-----:|
+| A      | 1 月 1 日 | 1 月 10 日 |  100 |
+| B      | 1 月 2 日 | 1 月 20 日 |  200 |
+
+A 卡在 1 月 3 日消费了 30 元。
+
+那么我们希望得到这样的日报：
+
+| 统计日     | 有效储值余额 |
+|------------|-------------:|
+| 1 月 1 日  |          100 |
+| 1 月 2 日  |          300 |
+| 1 月 3 日  |          270 |
+| 1 月 4 日  |          270 |
+| …          |            … |
+| 1 月 10 日 |          200 |
+| 1 月 11 日 |          200 |
+
+这里有一个非常重要的地方需要我们注意：
+
+**这不是“当天发生了多少储值交易”，而是“当天 24:00 这个时间点，系统中还存在多少有效余额”。**
+
+所以：
+
+```text
+日报流水 ≠ 时点快照
+```
+
+这两个概念看起来接近，但实现方式完全不同。
+
+流水表达的是：**今天发生了什么？** 例如：今日新增储值、今日消费金额、今日失效金额等等，这些都是`Event / Transaction`。
+
+快照表达的是：**截止今天 24:00，系统是什么状态？**，例如：今日有效储值余额等，这些是`State / Snapshot`。
+
+如果用数学公式来表示两者关系的话，就是
+```TeX
+S(t) = S(0) + \sum_{i=1}^{t} \Delta(i)
+```
+
+再简化一下，就是
+```TeX
+S(t) = S(t-1) + \Delta(t)
+```
+
+其中 <math>S(t)</math> 是一个关于时间 t 的函数，表示第 t 天的快照。<math>\Delta(t)</math> 表示第 t 天发生的所有流水变化。
+
+### 快照问题的抽象方法与解决思路
+
+接下来分析一下快照问题的解决思路，以及如何对此类问题做更进一步的抽象。首先新建两张表：
+
+<tabs>
+    <tab title="储值卡表">
+        <code-block lang="sql">
+            CREATE TABLE `gift_card` (
+              `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '储值卡ID',
+              `user_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT '用户ID',
+              `activated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '激活时间',
+              `expired_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '失效时间',
+              `face_value` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '储值卡面值',
+              PRIMARY KEY (`id`),
+              KEY `idx_activated_at` (`activated_at`),
+              KEY `idx_expired_at` (`expired_at`),
+              KEY `idx_user_id` (`user_id`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='储值卡表';
+        </code-block>
+    </tab>
+    <tab title="储值卡消费流水表">
+        <code-block lang="sql">
+            CREATE TABLE `gift_card_usage` (
+              `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '消费流水ID',
+              `gift_card_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT '储值卡ID',
+              `used_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '消费时间',
+              `amount` decimal(18,2) NOT NULL DEFAULT '0.00' COMMENT '消费金额',
+              `status` varchar(20) NOT NULL DEFAULT 'SUCCESS' COMMENT '消费状态：SUCCESS-成功，FAILED-失败，PENDING-处理中',
+              PRIMARY KEY (`id`),
+              KEY `idx_gift_card_id` (`gift_card_id`),
+              KEY `idx_status` (`status`),
+              KEY `idx_used_at` (`used_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='储值卡消费流水表';
+        </code-block>
+    </tab>
+</tabs>
+
+接下来准备一些测试数据：
+
+<tabs>
+    <tab title="储值卡测试数据">
+        <code-block lang="sql">
+            INSERT INTO gift_card
+            (id, user_id, activated_at, expired_at, face_value)
+            VALUES
+            (1, 1001, '2026-01-01 10:00:00', '2026-01-10 23:59:59', 100.00),
+            (2, 1002, '2026-01-02 12:00:00', '2026-01-20 23:59:59', 200.00),
+            (3, 1003, '2026-01-05 10:00:00', '2026-01-08 23:59:59', 150.00);
+        </code-block>
+    </tab>
+    <tab title="消费流水测试数据">
+        <code-block lang="sql">
+            INSERT INTO gift_card_usage
+            (id, gift_card_id, used_at, amount, status)
+            VALUES
+            (1, 1, '2026-01-03 15:00:00', 30.00, 'SUCCESS'),
+            (2, 2, '2026-01-05 18:00:00', 50.00, 'SUCCESS'),
+            (3, 3, '2026-01-06 11:00:00', 20.00, 'SUCCESS'),
+            (4, 1, '2026-01-10 11:00:00', 20.00, 'SUCCESS');
+        </code-block>
+    </tab>
+</tabs>
+
+我们来整理一下思路，想一想，如果我们想查截至 2026-01-10 这天 24 点的有效余额快照的话，那么首先，储值卡的“有效”状态该怎么定义？
+
+伪代码应该是这样：
+```Plain Text
+激活时间 <= 统计时点 && 失效时间 > 统计时点
+```
+
+可以看到时间边界条件是左闭右开，后面会讲为什么这么做判断，我们先接着往下看。
+
+最基础的状态条件定义已经好了，那么“有效余额”的定义就可以简化如下：
+```Plain Text
+有效余额 = 截至统计时点的有效储值卡的储值金额 - 截至统计时点的有效储值卡的已消费金额
+
+```
+
+进一步可抽象为：
+```Plain Text
+Snapshot(D) = 历史上截至 D 已经产生的资产 - 历史上截至 D 已经发生的消耗
+```
+
+这其实是一种非常通用的数据模型。一旦了解了时点快照（Point-in-Time Snapshot），很多报表都会变得很好理解。
+
+例如：
+
+<tabs>
+    <tab title="电商系统">
+        <code-block lang="plain text">
+            每日库存快照
+            每日未发货订单快照
+            每日有效优惠券快照
+            每日储值余额快照
+        </code-block>
+    </tab>
+    <tab title="会员系统">
+        <code-block lang="plain text">
+            每日有效会员数快照
+            每日会员等级分布快照
+            每日积分余额快照
+        </code-block>
+    </tab>
+    <tab title="财务系统">
+        <code-block lang="plain text">
+            每日应收余额快照
+            每日应付余额快照
+            每日未结算金额快照
+        </code-block>
+    </tab>
+    <tab title="SaaS">
+        <code-block lang="plain text">
+            每日有效订阅数快照
+            每日活跃合同数快照
+            每日席位占用数快照
+        </code-block>
+    </tab>
+</tabs>
+
+它们表面上是不同业务，但背后的计算模型其实非常接近：
+
+```Plain Text
+在统计时点 D：
+筛选已经生效的对象
+排除已经结束的对象
+累计截至 D 已发生的状态变化
+最终得到 D 时刻的状态
+```
+
+再来看一下时间边界的条件
+
+我们要统计的是截至 2026-01-10 这天 24 点的快照，也就是 2026-01-10 24:00:00，实际上这个时间点已经变成 2026-01-11 00:00:00 了。
+
+所以就算有一张卡的激活时间是 2026-01-10 23:59:59，我们也应该算它已生效，快照数据应该包含它。
+同理，就算有一张卡的过期时间是 2026-01-10 23:59:59，我们也应该算他失效，快照数据应该排除它。
+
+这就是为什么快照 SQL 中经常会出现这样的条件：
+
+```Plain Text
+activated_at <= snapshot_time
+AND expired_at > snapshot_time
+```
+
+最终实际上是在表达一个非常标准的时间区间：
+
+```text
+[activated_at, expired_at)
+```
+
+以及一个非常明确的统计点：
+
+```text
+snapshot_time = stat_date + 1 day
+```
+
 ### 未完待续。。。
