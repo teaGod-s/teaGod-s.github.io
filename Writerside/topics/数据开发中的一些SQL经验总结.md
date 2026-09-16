@@ -1,4 +1,5 @@
 # 数据开发中的一些SQL经验总结
+<show-structure depth="2"/>
 
 声明：  
 &emsp;&emsp;本篇博客不涉及任何SQL性能考虑，只是讨论在OLAP场景下的一些理论解决方法，用来解决日常生产开发中的一些常见需求。  
@@ -362,7 +363,7 @@ CTE的优势有很多：
 
 ## 怎么用SQL解决快照问题？ {id="sql_5"}
 
-### 什么是快照？
+### 什么是快照？ {id="sql_5_1"}
 首先来简单理解一下什么是快照。我们以电商系统中常见的储值卡业务为例。
 
 假设某电商平台支持储值卡。 用户可以购买一张储值卡，储值卡具有：`激活时间、失效时间、面值`等属性。
@@ -392,7 +393,7 @@ A 卡在 1 月 3 日消费了 30 元。
 
 这里有一个非常重要的地方需要我们注意：
 
-**这不是“当天发生了多少储值交易”，而是“当天 24:00 这个时间点，系统中还存在多少有效余额”。**
+**这不是“当天发生了多少储值交易”，而是“当天 23:59:59 这个时间点，系统中还存在多少有效余额”。**
 
 所以：
 
@@ -404,7 +405,7 @@ A 卡在 1 月 3 日消费了 30 元。
 
 流水表达的是：**今天发生了什么？** 例如：今日新增储值、今日消费金额、今日失效金额等等，这些都是`Event / Transaction`。
 
-快照表达的是：**截止今天 24:00，系统是什么状态？**，例如：今日有效储值余额等，这些是`State / Snapshot`。
+快照表达的是：**截止今天 23:59:59，系统是什么状态？**，例如：今日有效储值余额等，这些是`State / Snapshot`。
 
 如果用数学公式来表示两者关系的话，就是
 ```TeX
@@ -418,7 +419,7 @@ S(t) = S(t-1) + \Delta(t)
 
 其中 <math>S(t)</math> 是一个关于时间 t 的函数，表示第 t 天的快照。<math>\Delta(t)</math> 表示第 t 天发生的所有流水变化。
 
-### 快照问题的抽象方法与解决思路
+### 快照问题的抽象方法与解决思路 {id="sql_5_2"}
 
 接下来分析一下快照问题的解决思路，以及如何对此类问题做更进一步的抽象。首先新建两张表：
 
@@ -481,7 +482,7 @@ S(t) = S(t-1) + \Delta(t)
     </tab>
 </tabs>
 
-我们来整理一下思路，想一想，如果我们想查截至 2026-01-10 这天 24 点的有效余额快照的话，那么首先，储值卡的“有效”状态该怎么定义？
+我们来整理一下思路，想一想，如果我们想查截至 2026-01-10 这天 23:59:59 的有效余额快照的话，那么首先，储值卡的“有效”状态该怎么定义？
 
 伪代码应该是这样：
 ```Plain Text
@@ -552,7 +553,7 @@ Snapshot(D) = 历史上截至 D 已经产生的资产 - 历史上截至 D 已经
 
 所以快照问题的本质就是：**站在某个历史时间点上，把当时已经发生的事件重新拼起来，还原那个时间点的业务状态。**
 
-### SQL 解法
+### SQL 实践 {id="sql_5_3"}
 
 我们来看两版 SQL，这两版 SQL 对于我们这个需求来说，都是正确答案。
 
@@ -601,5 +602,108 @@ Snapshot(D) = 历史上截至 D 已经产生的资产 - 历史上截至 D 已经
 
 而 DATEDIFF 比较的是日期部分，不够灵活。如果需求改成统计 `2026-01-10 18:00:00` 这个时刻的快照，DATEDIFF 写法就完全不能用了。可是 DATEADD 写法稍加改造就能完美适配。
 
+但是有一点需要注意，因为我们把基准时间往后调了一秒，所以不等号发生了变化，由 
+```Plain Text
+激活时间 <= 统计时点 && 失效时间 > 统计时点
+```
+变成了
+```Plain Text
+激活时间 < 统计时点+1s && 失效时间 >= 统计时点+1s
+```
 
-### 未完待续。。。
+### 多日快照 SQL 怎么写 {id="sql_5_4"}
+
+上面的 SQL 只能查询 `2026-01-10` 这天的快照，如果要查 `2026-01-08` 的快照，就只能手改 SQL 再跑一次。
+
+那么能不能用一条 SQL 就能查出 `2026-01-01` 到 `2026-01-10` 的快照呢？可以这样写
+
+```sql
+    WITH date_list AS (
+        SELECT '2026-01-01' AS stat_date
+        UNION ALL
+        SELECT '2026-01-02'
+        UNION ALL
+        SELECT '2026-01-03'
+        UNION ALL
+        SELECT '2026-01-04'
+        UNION ALL
+        SELECT '2026-01-05'
+        UNION ALL
+        SELECT '2026-01-06'
+        UNION ALL
+        SELECT '2026-01-07'
+        UNION ALL
+        SELECT '2026-01-08'
+        UNION ALL
+        SELECT '2026-01-09'
+        UNION ALL
+        SELECT '2026-01-10'
+    )
+    SELECT
+        d.stat_date,
+        SUM(g.face_value) - COALESCE(SUM(u.used_amount), 0) AS active_balance
+    FROM date_list d
+    CROSS JOIN (
+        SELECT id, face_value, activated_at, expired_at
+        FROM gift_card
+    ) g ON g.activated_at < DATE_ADD(CAST(d.stat_date AS DATETIME), INTERVAL 1 DAY) AND g.expired_at >= DATE_ADD(CAST(d.stat_date AS DATETIME), INTERVAL 1 DAY)
+    LEFT JOIN (
+        SELECT gift_card_id, DATE(used_at) AS used_date, SUM(amount) AS used_amount
+        FROM gift_card_usage
+        WHERE status = 'SUCCESS'
+        GROUP BY gift_card_id, DATE(used_at)
+    ) u ON g.id = u.gift_card_id AND u.used_date <= d.stat_date
+    GROUP BY d.stat_date
+    ORDER BY d.stat_date;
+```
+不过，这个 SQL 虽然能表达思想，但还不是我最推荐的工程写法。
+
+这里真正值得抽象的是：
+
+```Plain Text
+统计日期
+    ×
+业务对象
+    ↓
+判断对象在统计时点是否有效
+    ↓
+计算统计时点之前已经发生的消费
+    ↓
+得到统计时点状态
+```
+
+这类快照 SQL 中，经常会看到一个看起来有点暴力的操作：
+
+```sql
+CROSS JOIN date_list
+```
+
+原因其实很简单。假设有：
+
+```Plain Text
+3 张储值卡
+10 个统计日
+```
+那么我们真正想判断的是：
+
+```Plain Text
+卡 A × 1 月 1 日
+卡 A × 1 月 2 日
+卡 A × 1 月 3 日
+...
+
+卡 B × 1 月 1 日
+卡 B × 1 月 2 日
+卡 B × 1 月 3 日
+...
+
+卡 C × 1 月 1 日
+卡 C × 1 月 2 日
+...
+```
+也就是说：
+```Plain Text
+业务对象 × 时间
+```
+然后逐个回答：**“这个对象在这个时间点到底是什么状态？”**
+## 未完待续。。。
