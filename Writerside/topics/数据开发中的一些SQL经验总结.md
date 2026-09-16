@@ -327,7 +327,7 @@ CTE 简单来说就是用 `WITH` 语句创建的子查询视图，它只是临�
 
 我们可以用 CTE 写法来改造一下上面的窗口函数子查询版本SQL
 
-<compare first-title="使用窗口函数去重（子查询）" second-title="使用窗口函数去重（CTE）">
+<compare type="top-bottom" first-title="使用窗口函数去重（子查询）" second-title="使用窗口函数去重（CTE）">
 <include from="公用sql代码片段.topic" element-id="windows_distinct_sql"></include>
 <code-block lang="sql">
             WITH oi AS (
@@ -488,9 +488,13 @@ S(t) = S(t-1) + \Delta(t)
 激活时间 <= 统计时点 && 失效时间 > 统计时点
 ```
 
-可以看到时间边界条件是左闭右开，后面会讲为什么这么做判断，我们先接着往下看。
+可以看到时间边界条件是左闭右开。
 
-最基础的状态条件定义已经好了，那么“有效余额”的定义就可以简化如下：
+因为统计时点是一个时刻，即使是这个时刻激活的也应该算激活，同理，即使是这个时刻失效的也应该算失效。
+
+所以我们定义“有效”时，就应该包括这个时刻已经激活的，而剔除这个时刻已经失效的。
+
+最基础的“有效”定义已经好了，那么“有效余额”的定义就可以简化如下：
 ```Plain Text
 有效余额 = 截至统计时点的有效储值卡的储值金额 - 截至统计时点的有效储值卡的已消费金额
 
@@ -508,24 +512,23 @@ Snapshot(D) = 历史上截至 D 已经产生的资产 - 历史上截至 D 已经
 <tabs>
     <tab title="电商系统">
         <code-block lang="plain text">
-            每日库存快照
-            每日未发货订单快照
+            每日有效库存快照
             每日有效优惠券快照
-            每日储值余额快照
+            每日有效储值余额快照
         </code-block>
     </tab>
     <tab title="会员系统">
         <code-block lang="plain text">
             每日有效会员数快照
             每日会员等级分布快照
-            每日积分余额快照
+            每日有效积分余额快照
         </code-block>
     </tab>
-    <tab title="财务系统">
+    <tab title="P2P系统">
         <code-block lang="plain text">
             每日应收余额快照
             每日应付余额快照
-            每日未结算金额快照
+            每日未结清金额快照
         </code-block>
     </tab>
     <tab title="SaaS">
@@ -547,30 +550,56 @@ Snapshot(D) = 历史上截至 D 已经产生的资产 - 历史上截至 D 已经
 最终得到 D 时刻的状态
 ```
 
-再来看一下时间边界的条件
+所以快照问题的本质就是：**站在某个历史时间点上，把当时已经发生的事件重新拼起来，还原那个时间点的业务状态。**
 
-我们要统计的是截至 2026-01-10 这天 24 点的快照，也就是 2026-01-10 24:00:00，实际上这个时间点已经变成 2026-01-11 00:00:00 了。
+### SQL 解法
 
-所以就算有一张卡的激活时间是 2026-01-10 23:59:59，我们也应该算它已生效，快照数据应该包含它。
-同理，就算有一张卡的过期时间是 2026-01-10 23:59:59，我们也应该算他失效，快照数据应该排除它。
+我们来看两版 SQL，这两版 SQL 对于我们这个需求来说，都是正确答案。
 
-这就是为什么快照 SQL 中经常会出现这样的条件：
+<compare type="top-bottom" first-title="DATEDIFF 写法" second-title="DATEADD 写法">
+<code-block lang="sql"><![CDATA[
+            SELECT
+                "2026-01-10",
+                SUM(g.face_value) - COALESCE(SUM(u.used_amount), 0) AS active_balance
+            FROM (
+                SELECT id, face_value, activated_at, expired_at
+                FROM gift_card
+            ) g
+            LEFT JOIN (
+                SELECT gift_card_id, DATE(used_at) AS used_date, SUM(amount) AS used_amount
+                FROM gift_card_usage
+                WHERE status = 'SUCCESS'
+                GROUP BY gift_card_id, DATE(used_at)
+            ) u ON g.id = u.gift_card_id AND DATEDIFF(DATE(u.used_date), "2026-01-10") <= 0
+            WHERE DATEDIFF(DATE(g.activated_at), "2026-01-10") <= 0
+            AND DATEDIFF(DATE(g.expired_at), "2026-01-10") > 0;
+        ]]>
+</code-block>
+<code-block lang="sql"><![CDATA[
+            SELECT
+                "2026-01-10",
+                SUM(g.face_value) - COALESCE(SUM(u.used_amount), 0) AS active_balance
+            FROM (
+                SELECT id, face_value, activated_at, expired_at
+                FROM gift_card
+            ) g
+            LEFT JOIN (
+                SELECT gift_card_id, DATE(used_at) AS used_date, SUM(amount) AS used_amount
+                FROM gift_card_usage
+                WHERE status = 'SUCCESS'
+                GROUP BY gift_card_id, DATE(used_at)
+            ) u ON g.id = u.gift_card_id AND u.used_date < DATE_ADD(CAST("2026-01-10" AS DATETIME), INTERVAL 1 DAY)
+            WHERE g.activated_at < DATE_ADD(CAST("2026-01-10" AS DATETIME), INTERVAL 1 DAY)
+            AND g.expired_at >= DATE_ADD(CAST("2026-01-10" AS DATETIME), INTERVAL 1 DAY);
+        ]]>
+</code-block>
+</compare>
 
-```Plain Text
-activated_at <= snapshot_time
-AND expired_at > snapshot_time
-```
+我在这里更推荐 DATEADD 写法，因为 DATEADD 写法更符合时点快照的思想。
 
-最终实际上是在表达一个非常标准的时间区间：
+它用的是 `2026-01-10 24:00:00` 这个时刻作为统计基准，这个时刻与 `2026-01-11 00:00:00` 等价，即`DATE_ADD(CAST("2026-01-10" AS DATETIME), INTERVAL 1 DAY)`。
 
-```text
-[activated_at, expired_at)
-```
+而 DATEDIFF 比较的是日期部分，不够灵活。如果需求改成统计 `2026-01-10 18:00:00` 这个时刻的快照，DATEDIFF 写法就完全不能用了。可是 DATEADD 写法稍加改造就能完美适配。
 
-以及一个非常明确的统计点：
-
-```text
-snapshot_time = stat_date + 1 day
-```
 
 ### 未完待续。。。
