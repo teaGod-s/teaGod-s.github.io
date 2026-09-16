@@ -706,4 +706,62 @@ CROSS JOIN date_list
 业务对象 × 时间
 ```
 然后逐个回答：**“这个对象在这个时间点到底是什么状态？”**
-## 未完待续。。。
+
+这种笛卡尔积带来的结果就是计算量的等比放大，这也是快照 SQL 很容易越写越慢的原因。
+
+所以如果条件允许的话，还是建议读者直接维护一张快照表，每天计算增量快照即可。
+即 <math>S(t-1)</math> 直接直接读取昨日保存结果，同时计算今日 <math>\Delta(t)</math>，最终得到今天的快照 <math>S(t) = S(t-1) + \Delta(t)</math>。
+
+让我们用 CTE 将上面的 SQL 改成更为清晰一点的写法
+
+```sql
+    WITH date_list AS (
+        SELECT '2026-01-01' AS stat_date
+        UNION ALL SELECT '2026-01-02'
+        UNION ALL SELECT '2026-01-03'
+        UNION ALL SELECT '2026-01-04'
+        UNION ALL SELECT '2026-01-05'
+        UNION ALL SELECT '2026-01-06'
+        UNION ALL SELECT '2026-01-07'
+        UNION ALL SELECT '2026-01-08'
+        UNION ALL SELECT '2026-01-09'
+        UNION ALL SELECT '2026-01-10'
+    ),
+    card_snapshot AS (
+        SELECT d.stat_date, g.id AS gift_card_id, g.face_value
+        FROM date_list d
+        CROSS JOIN gift_card g ON g.activated_at < DATE_ADD(CAST(d.stat_date AS DATETIME), INTERVAL 1 DAY) AND g.expired_at >= DATE_ADD(CAST(d.stat_date AS DATETIME), INTERVAL 1 DAY)
+    ),
+    usage_snapshot AS (
+        SELECT d.stat_date, u.gift_card_id, SUM(u.amount) AS used_amount
+        FROM date_list d
+        CROSS JOIN gift_card_usage u ON u.used_at < DATE_ADD(CAST(d.stat_date AS DATETIME), INTERVAL 1 DAY) AND u.status = 'SUCCESS'
+        GROUP BY d.stat_date, u.gift_card_id
+    )
+    SELECT
+        c.stat_date,
+        SUM(c.face_value) - COALESCE(SUM(u.used_amount), 0) AS active_balance
+    FROM card_snapshot c
+    LEFT JOIN usage_snapshot u ON c.stat_date = u.stat_date AND c.gift_card_id = u.gift_card_id
+    GROUP BY c.stat_date
+    ORDER BY c.stat_date;
+```
+
+这个 SQL 的可读性要好很多。
+
+因为我们已经把问题拆成两个非常明确的步骤：
+
+```Plain Text
+card_snapshot
+    ↓
+这个日期上有哪些“有效储值卡”？
+
+usage_snapshot
+    ↓
+截至这个日期，这些卡已经消费了多少钱？
+
+最终：
+有效面值 - 已消费金额
+```
+
+## 感谢阅读，未完待续。。。
